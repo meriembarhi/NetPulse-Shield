@@ -1,0 +1,136 @@
+# Network Security Remediation Knowledge Base
+# NetPulse-Shield — docs/remediation_knowledge.txt
+#
+# This file is the primary knowledge base ingested by solver.py.
+# Add or extend sections below to customise the advice produced by
+# the RAG pipeline.  Sections are separated by "---" on its own line.
+
+# DDoS Attack Remediation
+A Distributed Denial-of-Service (DDoS) attack floods a target with traffic
+to exhaust its resources and make it unavailable to legitimate users.
+
+Indicators: Sudden spike in packets_per_second, high bytes_sent from many
+source IPs, very short connection durations combined with maximum packet sizes.
+
+Remediation steps:
+1. Enable rate-limiting on edge routers and firewalls immediately.
+2. Activate upstream scrubbing services (e.g., Cloudflare Magic Transit,
+   AWS Shield Advanced) to absorb volumetric traffic.
+3. Use anycast routing or a CDN to distribute and absorb the load.
+4. Apply access control lists (ACLs) to block the source IP ranges.
+5. Alert the upstream ISP for null-routing assistance on heavily abused prefixes.
+6. Scale out horizontally (auto-scaling groups) to absorb residual traffic.
+7. After mitigation, collect NetFlow/IPFIX logs and submit to threat-intel feeds.
+
+---
+
+# Port Scan Detection and Remediation
+A port scan probes a host across many destination ports to discover open
+services that can be exploited.
+
+Indicators: Single source IP connecting to many distinct dst_port values in
+a short duration, small packet_size (often just SYN packets), low bytes_sent.
+
+Remediation steps:
+1. Block the scanning source IP at the perimeter firewall.
+2. Enable port-scan detection in your IDS/IPS (e.g., Snort, Suricata rule
+   ``spp_portscan`` or ``portscan`` preprocessor).
+3. Close or firewall off all non-essential ports; follow the principle of
+   least privilege for network exposure.
+4. Move management interfaces (SSH, RDP) to non-standard ports and restrict
+   to known management CIDR ranges.
+5. Enable SYN cookies on Linux hosts (``sysctl -w net.ipv4.tcp_syncookies=1``)
+   to protect against SYN-flood variants.
+6. Review the targeted host for unnecessary open services and patch them.
+
+---
+
+# Data Exfiltration Remediation
+Data exfiltration occurs when large volumes of sensitive data are transferred
+out of the network to an unauthorised destination.
+
+Indicators: Unusually high bytes_sent to external IPs, long-duration sessions
+at unusual hours, connections to known data-sink IP ranges or cloud storage.
+
+Remediation steps:
+1. Immediately isolate the suspected endpoint from the network.
+2. Block outbound traffic to the destination IP/domain at the firewall.
+3. Capture and preserve network forensic evidence (PCAP, NetFlow).
+4. Enable Data Loss Prevention (DLP) policies on egress proxies.
+5. Rotate credentials (API keys, passwords, certificates) for all services
+   accessible from the compromised host.
+6. Conduct a full endpoint forensic investigation (memory dump, disk image).
+7. Notify affected parties per your incident-response plan and regulatory
+   obligations (GDPR, HIPAA, etc.).
+
+---
+
+# Brute-Force Login Attack Remediation
+Repeated failed authentication attempts targeting SSH, RDP, or web login
+endpoints indicate a brute-force or credential-stuffing attack.
+
+Indicators: High packets_per_second to a single dst_port (22, 3389, 80/443),
+many short connections from one or a few source IPs.
+
+Remediation steps:
+1. Temporarily ban the source IP using fail2ban or similar tooling.
+2. Enforce multi-factor authentication (MFA) on all remote-access services.
+3. Replace password authentication with public-key authentication for SSH.
+4. Implement account-lockout policies after N failed attempts.
+5. Deploy a CAPTCHA or bot-management solution for web login pages.
+6. Move SSH to a non-standard port and restrict it to a VPN or bastion host.
+7. Review logs for successful logins immediately after the burst to check for
+   compromise; reset any affected credentials.
+
+---
+
+# Man-in-the-Middle (MitM) Attack Remediation
+A MitM attack intercepts communication between two parties to eavesdrop
+or modify traffic.
+
+Indicators: ARP spoofing alerts, unexpected certificate changes, unusual
+traffic routing through intermediate hosts, duplicate MAC-IP mappings.
+
+Remediation steps:
+1. Enable Dynamic ARP Inspection (DAI) on managed switches.
+2. Deploy HTTPS everywhere with HSTS (HTTP Strict Transport Security) and
+   certificate pinning for critical applications.
+3. Use mutual TLS (mTLS) for service-to-service communication.
+4. Enable DNSSEC and DNS-over-HTTPS (DoH) to prevent DNS spoofing.
+5. Segment the network with VLANs and restrict inter-VLAN routing.
+6. Monitor for duplicate ARP entries and abnormal routing-table changes.
+7. Educate users to verify certificate warnings and report anomalies.
+
+---
+
+# Ransomware Network Activity Remediation
+Ransomware often exhibits lateral-movement traffic before encryption,
+including SMB scanning, credential harvesting, and C2 beaconing.
+
+Indicators: Internal SMB (port 445) scanning traffic, beaconing to external
+IPs at regular intervals (periodic anomaly_score spikes), large encrypted
+outbound transfers.
+
+Remediation steps:
+1. Immediately isolate affected hosts at the network level (VLAN quarantine).
+2. Disable SMBv1 across the environment (``Set-SmbServerConfiguration
+   -EnableSMB1Protocol $false`` on Windows).
+3. Block outbound traffic to identified C2 IP/domain indicators.
+4. Restore affected systems from verified clean backups — do NOT pay ransom.
+5. Patch the initial infection vector (phishing gateway, unpatched software).
+6. Conduct a full incident-response investigation before reconnecting hosts.
+7. Implement network micro-segmentation to limit lateral movement in future.
+
+---
+
+# General Network Security Best Practices
+Apply these baseline controls to reduce attack surface across all threats:
+
+- Keep all software, firmware, and OS packages up to date.
+- Follow the principle of least privilege for user and service accounts.
+- Enable logging (syslog, NetFlow, PCAP retention) and centralise in a SIEM.
+- Conduct regular penetration testing and vulnerability assessments.
+- Train staff on phishing awareness and secure-coding practices.
+- Maintain and rehearse an incident response plan.
+- Implement network segmentation and zero-trust architecture.
+- Use encrypted protocols (TLS 1.2+, SSH, SFTP) for all data in transit.
