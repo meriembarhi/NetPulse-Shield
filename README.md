@@ -18,6 +18,7 @@ external API keys required.
 
 ## Project Structure
 
+```
 NetPulse-Shield/
 ├── detector.py             # Isolation Forest anomaly detector [cite: 12]
 ├── auto_remediator.py      # Bridge to Llama 3 for remediation advice [cite: 17]
@@ -28,6 +29,7 @@ NetPulse-Shield/
 │   ├── README.md           # Guide for local data setup
 │   └── final_project_data.csv # Optimized dataset with 50,000 records [cite: 7]
 └── Security_Report.txt     # Final AI-generated security report
+```
 
 ---
 
