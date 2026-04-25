@@ -126,20 +126,20 @@ print(advice)
 
 ### Detector
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `contamination` | `0.1` | Expected anomaly fraction (0–0.5) |
-| `n_estimators` | `100` | Number of trees in the ensemble |
-| `random_state` | `42` | Seed for reproducibility |
+| Parameter       | Default | Description                       |
+|-----------------|---------|-----------------------------------|
+| `contamination` | `0.1`   | Expected anomaly fraction (0–0.5) |
+| `n_estimators`  | `100`   | Number of trees in the ensemble   |
+| `random_state`  | `42`    | Seed for reproducibility          |
 
 ### Advisor
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `knowledge_base_path` | `None` | Path to a custom knowledge-base file (falls back to `docs/remediation_knowledge.txt`) |
-| `embedding_model` | `all-MiniLM-L6-v2` | sentence-transformers model for embedding |
-| `top_k` | `3` | Number of document chunks retrieved per query |
-| `llm_pipeline` | `None` | Optional Hugging Face text-generation pipeline for LLM synthesis |
+| Parameter             | Default            | Description                                   |
+|-----------------------|--------------------|-----------------------------------------------|
+| `knowledge_base_path` | `None`             | Path to a custom knowledge-base file (falls back to `docs remediation_knowledge.txt`) |
+| `embedding_model`     | `all-MiniLM-L6-v2` | sentence-transformers model for embedding     |
+| `top_k`               | `3`                | Number of document chunks retrieved per query |
+| `llm_pipeline`        | `None`             | Optional Hugging Face text-generation pipeline for LLM synthesis |
 
 ---
 
