@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# NetPulse-Shield Artifacts
+alerts.csv
+# Ignore only the large CSV files inside data
+data/*.csv
+alerts.csv
+
+# Do NOT ignore the data README (if you want them to see it)
+!data/README.md
+!data/final_project_data.csv
