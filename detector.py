@@ -227,7 +227,7 @@ if __name__ == "__main__":
     print("NetPulse-Shield — Network Anomaly Detector")
     print("=" * 50)
 
-    data_path = os.path.join("data", "sample_traffic.csv")
+    data_path = os.path.join("data", "final_project_data.csv")
 
     if os.path.exists(data_path):
         print(f"Loading data from {data_path} …")
@@ -246,6 +246,7 @@ if __name__ == "__main__":
     print(f"\nTotal records analysed : {len(results)}")
     print(f"Anomalies detected     : {len(anomalies)}  ({len(anomalies) / len(results) * 100:.1f} %)")
 
-    display_cols = [c for c in ["packet_size", "duration", "bytes_sent", "packets_per_second", "anomaly_score"] if c in anomalies.columns]
+    # Updated display columns to match your "Power Set"
+    display_cols = [c for c in ["sttl", "sbytes", "Sload", "Dload", "anomaly_score"] if c in anomalies.columns]
     print("\nTop 5 anomalies (lowest score = most anomalous):")
     print(anomalies.nsmallest(5, "anomaly_score")[display_cols].to_string(index=False))
