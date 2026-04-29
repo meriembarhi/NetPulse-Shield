@@ -20,14 +20,15 @@ external API keys required.
 
 ```
 NetPulse-Shield/
-├── detector.py             # Isolation Forest anomaly detector [cite: 12]
-├── auto_remediator.py      # Bridge to Llama 3 for remediation advice [cite: 17]
-├── clean_data.py           # Filters the raw dataset into a usable size [cite: 6]
-├── requirements.txt        # Python dependencies (Pandas, Scikit-learn, Ollama) [cite: 25, 27]
+├── detector.py             # Isolation Forest anomaly detector
+├── auto_remediator.py      # Bridge to Llama 3 for remediation advice
+├── dashboard.py            # Interactive Streamlit interface (L'INTERFACE EST ICI)
+├── clean_data.py           # Filters the raw dataset into a usable size
+├── requirements.txt        # Python dependencies (Pandas, Scikit-learn, Ollama)
 ├── .gitignore              # Prevents large data/logs from being uploaded
 ├── data/
 │   ├── README.md           # Guide for local data setup
-│   └── final_project_data.csv # Optimized dataset with 50,000 records [cite: 7]
+│   └── final_project_data.csv # Optimized dataset with 50,000 records
 └── Security_Report.txt     # Final AI-generated security report
 ```
 
