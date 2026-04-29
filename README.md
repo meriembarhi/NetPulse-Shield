@@ -98,8 +98,37 @@ Brute-Force Login Attack Remediation
 2. Enforce multi-factor authentication (MFA) on all remote-access services.
 ...
 ```
+### 4. Launch the Interactive Dashboard
 
-### 4. Use the components programmatically
+To visualize the detection results and read the AI security report in a professional interface, run:
+
+```bash
+streamlit run dashboard.py
+
+Voici exactement le contenu à copier et à insérer dans ton fichier README.md, juste après la section 3. Run the RAG advisor (vers la ligne 89 selon ta capture d'écran) :
+
+Markdown
+### 4. Launch the Interactive Dashboard
+
+To visualize the detection results and read the AI security report in a professional interface, run:
+
+```bash
+streamlit run dashboard.py
+```
+The dashboard will automatically open in your default browser at http://localhost:8501.
+
+📊 Interactive Dashboard
+The NetPulse-Shield Dashboard transforms raw network logs into actionable security intelligence through four specialized views:
+
+Overview: Real-time visualization of network health, comparing normal traffic volume against detected suspicious activities.
+
+Traffic Data: Exploratory Data Analysis (EDA) tools to inspect the cleaned dataset and visualize feature distributions (e.g., packet size, duration).
+
+Detected Alerts: A dedicated forensics view showing the specific records flagged by the Isolation Forest model for further investigation.
+
+Security Intelligence Report: A custom-styled briefing area that displays the Llama 3 remediation strategy, formatted for quick reading by security analysts.
+
+### 5. Use the components programmatically
 
 ```python
 from detector import NetworkAnomalyDetector, generate_sample_data
