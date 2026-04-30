@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-
+from detector import NetworkAnomalyDetector  # Importation de ton moteur IA
 
 # =========================
 # Page Configuration
@@ -14,7 +14,6 @@ st.set_page_config(
     layout="wide"
 )
 
-
 # =========================
 # File Paths
 # =========================
@@ -22,7 +21,6 @@ st.set_page_config(
 DATA_FILE = "data/final_project_data.csv"
 ALERTS_FILE = "alerts.csv"
 REPORT_FILE = "Security_Report.txt"
-
 
 # =========================
 # Helper Function
@@ -33,14 +31,41 @@ def load_csv(file_path):
         return pd.read_csv(file_path)
     return None
 
+# =========================
+# Sidebar Navigation & Control
+# =========================
+
+st.sidebar.title("🛡️ NetPulse Control")
+
+# --- NOUVEAU : Bouton de commande interactif ---
+st.sidebar.subheader("System Commands")
+if st.sidebar.button("🚀 Run Network Analysis"):
+    with st.spinner("L'IA analyse le flux réseau (50 000 lignes)..."):
+        try:
+            # On charge les données brutes
+            raw_data = pd.read_csv(DATA_FILE)
+            # On initialise le détecteur avec tes paramètres ENSA (contamination 5%)
+            detector = NetworkAnomalyDetector(contamination=0.05)
+            # On lance l'analyse (cela va aussi mettre à jour alerts.csv et models/)
+            detector.analyze(raw_data)
+            st.sidebar.success("Analyse terminée avec succès !")
+            # On force le rechargement des données pour l'affichage
+            st.cache_data.clear() 
+        except Exception as e:
+            st.sidebar.error(f"Erreur : {e}")
+
+st.sidebar.markdown("---")
+page = st.sidebar.radio(
+    "Choose a section",
+    ["Overview", "Traffic Data", "Detected Alerts", "Security Report"]
+)
 
 # =========================
-# Load Data
+# Load Data (Rechargé à chaque clic sur le bouton)
 # =========================
 
 data = load_csv(DATA_FILE)
 alerts = load_csv(ALERTS_FILE)
-
 
 # =========================
 # Header
@@ -49,29 +74,6 @@ alerts = load_csv(ALERTS_FILE)
 st.title("🛡️ NetPulse-Shield Dashboard")
 st.subheader("AI-Based Network Attack Detection and Remediation")
 
-st.markdown("""
-This dashboard displays network traffic indicators, detected anomalies, 
-and AI-generated remediation recommendations.
-""")
-
-
-# =========================
-# Sidebar Navigation
-# =========================
-
-st.sidebar.title("Navigation")
-
-page = st.sidebar.radio(
-    "Choose a section",
-    [
-        "Overview",
-        "Traffic Data",
-        "Detected Alerts",
-        "Security Report"
-    ]
-)
-
-
 # =========================
 # Overview Page
 # =========================
@@ -79,32 +81,26 @@ page = st.sidebar.radio(
 if page == "Overview":
     st.header("📊 General Overview")
 
-    col1, col2, col3 = st.columns(3)
+    if data is not None:
+        col1, col2, col3 = st.columns(3)
+        total_records = len(data)
+        total_alerts = len(alerts) if alerts is not None else 0
+        normal_records = max(total_records - total_alerts, 0)
 
-    total_records = len(data) if data is not None else 0
-    total_alerts = len(alerts) if alerts is not None else 0
-    normal_records = max(total_records - total_alerts, 0)
+        col1.metric("Total Traffic Records", total_records)
+        col2.metric("Detected Alerts", total_alerts, delta_color="inverse")
+        col3.metric("Estimated Normal Records", normal_records)
 
-    col1.metric("Total Traffic Records", total_records)
-    col2.metric("Detected Alerts", total_alerts)
-    col3.metric("Estimated Normal Records", normal_records)
+        st.markdown("---")
+        st.subheader("Normal vs Suspicious Traffic")
 
-    st.markdown("---")
-
-    st.subheader("Normal vs Suspicious Traffic")
-
-    if total_records > 0:
-        fig, ax = plt.subplots()
-        ax.bar(
-            ["Normal Traffic", "Suspicious Traffic"],
-            [normal_records, total_alerts]
-        )
+        fig, ax = plt.subplots(figsize=(10, 4))
+        colors = ['#238636', '#da3633'] # Vert pour normal, Rouge pour alerte
+        ax.bar(["Normal Traffic", "Suspicious Traffic"], [normal_records, total_alerts], color=colors)
         ax.set_ylabel("Number of Records")
-        ax.set_title("Traffic Classification")
         st.pyplot(fig)
     else:
-        st.warning("No data file found. Please make sure data/final_project_data.csv exists.")
-
+        st.warning("⚠️ En attente de données. Cliquez sur 'Run Network Analysis' dans la barre latérale.")
 
 # =========================
 # Traffic Data Page
@@ -114,37 +110,22 @@ elif page == "Traffic Data":
     st.header("🌐 Network Traffic Data")
 
     if data is not None:
-        st.write("Preview of the cleaned dataset:")
+        st.write("Aperçu du dataset (50 000 enregistrements) :")
         st.dataframe(data.head(50), use_container_width=True)
-
-        st.subheader("Dataset Information")
-
+        
         col1, col2 = st.columns(2)
-        col1.metric("Number of Rows", data.shape[0])
-        col2.metric("Number of Columns", data.shape[1])
-
-        st.write("Columns:")
-        st.write(list(data.columns))
+        col1.metric("Total Rows", data.shape[0])
+        col2.metric("Total Features", data.shape[1])
 
         numeric_cols = data.select_dtypes(include=["int64", "float64"]).columns
+        selected_col = st.selectbox("Visualiser la distribution d'une caractéristique", numeric_cols)
 
-        if len(numeric_cols) > 0:
-            selected_col = st.selectbox(
-                "Select a numeric feature to visualize",
-                numeric_cols
-            )
-
-            fig, ax = plt.subplots()
-            ax.hist(data[selected_col].dropna(), bins=30)
-            ax.set_title(f"Distribution of {selected_col}")
-            ax.set_xlabel(selected_col)
-            ax.set_ylabel("Frequency")
-            st.pyplot(fig)
-        else:
-            st.info("No numeric columns found in the dataset.")
+        fig, ax = plt.subplots()
+        ax.hist(data[selected_col].dropna(), bins=30, color='#1f77b4', edgecolor='white')
+        ax.set_title(f"Distribution de {selected_col}")
+        st.pyplot(fig)
     else:
-        st.error("data/final_project_data.csv not found.")
-
+        st.error("Fichier data/final_project_data.csv introuvable.")
 
 # =========================
 # Detected Alerts Page
@@ -154,33 +135,19 @@ elif page == "Detected Alerts":
     st.header("🚨 Detected Suspicious Traffic")
 
     if alerts is not None:
-        st.write("These records were detected as suspicious by the anomaly detection model.")
+        st.info(f"L'IA a isolé {len(alerts)} flux suspects nécessitant une attention immédiate.")
         st.dataframe(alerts, use_container_width=True)
 
-        st.subheader("Alert Statistics")
-
-        total_alerts = len(alerts)
-        st.metric("Total Alerts", total_alerts)
-
+        st.subheader("Top Threat Features")
         numeric_cols = alerts.select_dtypes(include=["int64", "float64"]).columns
+        selected_col = st.selectbox("Analyser la caractéristique des alertes", numeric_cols)
 
-        if len(numeric_cols) > 0:
-            selected_col = st.selectbox(
-                "Select an alert feature to visualize",
-                numeric_cols
-            )
-
-            fig, ax = plt.subplots()
-            ax.hist(alerts[selected_col].dropna(), bins=20)
-            ax.set_title(f"Alert Distribution by {selected_col}")
-            ax.set_xlabel(selected_col)
-            ax.set_ylabel("Frequency")
-            st.pyplot(fig)
-        else:
-            st.info("No numeric columns found in alerts.csv.")
+        fig, ax = plt.subplots()
+        ax.hist(alerts[selected_col].dropna(), bins=20, color='#da3633', edgecolor='white')
+        ax.set_title(f"Concentration des alertes sur {selected_col}")
+        st.pyplot(fig)
     else:
-        st.error("alerts.csv not found. Run detector.py first.")
-
+        st.error("Aucune alerte trouvée. Lancez l'analyse depuis la barre latérale.")
 
 # =========================
 # Security Report Page
@@ -193,64 +160,32 @@ elif page == "Security Report":
         with open(REPORT_FILE, "r", encoding="utf-8") as file:
             report = file.read()
 
-        # Remove repeated title from the generated report
-        report = report.replace("=== NETPULSE-SHIELD: AUTOMATED SECURITY REPORT ===", "")
-        report = report.strip()
+        report = report.replace("=== NETPULSE-SHIELD: AUTOMATED SECURITY REPORT ===", "").strip()
 
         st.markdown("""
         <style>
         .report-card {
             background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
-            border: 1px solid #30363d;
-            border-radius: 18px;
-            padding: 28px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.35);
-            color: #e6edf3;
-            font-family: 'Segoe UI', sans-serif;
-            line-height: 1.7;
+            border: 1px solid #30363d; border-radius: 18px; padding: 28px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.35); color: #e6edf3;
+            font-family: 'Segoe UI', sans-serif; line-height: 1.7;
         }
-
         .badge-danger {
-            display: inline-block;
-            background-color: #da3633;
-            color: white;
-            padding: 6px 14px;
-            border-radius: 999px;
-            font-size: 14px;
-            font-weight: bold;
-            margin-bottom: 18px;
+            background-color: #da3633; color: white; padding: 6px 14px;
+            border-radius: 999px; font-size: 14px; font-weight: bold;
         }
-
-        .badge-ai {
-            display: inline-block;
-            background-color: #238636;
-            color: white;
-            padding: 6px 14px;
-            border-radius: 999px;
-            font-size: 14px;
-            font-weight: bold;
-            margin-left: 8px;
-            margin-bottom: 18px;
-        }
-
         .report-section {
-            background-color: rgba(255,255,255,0.04);
-            padding: 20px;
-            border-radius: 14px;
-            white-space: pre-wrap;
-            font-size: 16px;
+            background-color: rgba(255,255,255,0.04); padding: 20px;
+            border-radius: 14px; white-space: pre-wrap; font-size: 16px; margin-top: 15px;
         }
         </style>
         """, unsafe_allow_html=True)
 
         st.markdown(f"""
         <div class="report-card">
-            <span class="badge-danger">HIGH RISK</span>
-            <span class="badge-ai">AI GENERATED ANALYSIS</span>
+            <span class="badge-danger">CRITICAL THREAT ANALYSIS</span>
             <div class="report-section">{report}</div>
         </div>
         """, unsafe_allow_html=True)
-
     else:
-        st.error("Security_Report.txt not found. Run auto_remediator.py first.")
-
+        st.info("💡 Une fois l'analyse terminée, utilisez le module de remédiation pour générer ce rapport.")
