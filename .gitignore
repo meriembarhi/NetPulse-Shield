@@ -226,3 +226,5 @@ alerts.csv
 !data/README.md
 !data/final_project_data.csv
 models/*.joblib
+__pycache__/
+*.pyc
