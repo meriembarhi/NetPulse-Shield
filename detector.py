@@ -13,14 +13,8 @@ import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import (
-    classification_report,
-    confusion_matrix,
-    roc_auc_score,
-    f1_score,
-    precision_score,
-    recall_score,
-)
+# ✅ Single line — Ruff is happy
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score, precision_score, recall_score
 
 
 class NetworkAnomalyDetector:
