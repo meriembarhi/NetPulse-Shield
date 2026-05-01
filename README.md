@@ -268,6 +268,34 @@ Interactive Scatter Plots: Analyzes the correlation between inbound and outbound
 
 ---
 
+
+##  Testing & Validation
+
+NetPulse-Shield includes a comprehensive test suite to ensure the reliability of both the machine learning detection engine and the RAG-based remediation advisor. These tests follow industry-standard **Validation & Verification (V&V)** protocols.
+
+### Test Structure
+*   **`tests/test_detector.py`**: Validates the Isolation Forest model by injecting volumetric attack signatures and verifying anomaly isolation.
+*   **`tests/test_solver.py`**: Ensures the RAG intelligence retrieves accurate, industry-standard protocols (e.g., MFA, ACLs, fail2ban) for specific threat queries.
+
+### Running the Tests
+To execute the full validation suite, ensure you have `pytest` installed and run the following command from the root directory:
+
+```bash
+# Install testing dependencies
+
+pip install pytest
+```
+# Run all automated tests
+
+```bash
+pytest tests/
+```
+
+Expected Output:
+
+A successful validation will return a report confirming that the volumetric attack signatures were correctly flagged and the remediation advice met the required technical accuracy for a Cisco-based infrastructure.
+
+
 ## Configuration
 
 ### Detector (`detector.py`)
