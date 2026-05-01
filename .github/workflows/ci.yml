@@ -47,5 +47,7 @@ jobs:
 
     # 5. Dynamic Analysis: Run the validation suite
     # Executes tests in /tests to verify Isolation Forest and RAG logic
-    - name: Run Automated Test Suite
-      run: pytest tests/
+    - name: Run Tests
+      run: |
+        export PYTHONPATH=$PYTHONPATH:$(pwd)
+        pytest

@@ -332,6 +332,7 @@ A successful validation will return a report confirming that the volumetric atta
 Edit `docs/remediation_knowledge.txt` to add new threat categories. Separate sections with a line containing only `---`. The advisor picks up changes automatically on next initialisation.
 
 ---
+<!-- CI path fix update -->.
 
 ## License
 
