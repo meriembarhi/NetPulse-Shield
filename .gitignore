@@ -225,3 +225,4 @@ alerts.csv
 # Do NOT ignore the data README (if you want them to see it)
 !data/README.md
 !data/final_project_data.csv
+models/*.joblib
