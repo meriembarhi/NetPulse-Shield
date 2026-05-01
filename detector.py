@@ -25,7 +25,7 @@ class NetworkAnomalyDetector:
         if os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
             self.model = joblib.load(self.model_path)
             self.scaler = joblib.load(self.scaler_path)
-            print(f"✅ Modèle et Scaler chargés depuis {self.model_path}")
+            print("✅ Modèle et Scaler chargés depuis {self.model_path}")
         else:
             self.model = None # Sera initialisé pendant l'entraînement
             self.scaler = StandardScaler()
@@ -55,7 +55,7 @@ class NetworkAnomalyDetector:
         if self.contamination == 'auto' and y_true is not None:
             attack_count = (y_true == 1).sum()
             self.contamination = max(min(attack_count / len(y_true), 0.5), 0.01)
-            print(f"📊 Contamination calculée depuis le dataset : {self.contamination:.4f}")
+            print("📊 Contamination calculée depuis le dataset : {self.contamination:.4f}")
         elif self.contamination == 'auto':
             self.contamination = 0.05 # Valeur par défaut si aucun label n'est fourni
 
@@ -123,11 +123,11 @@ if __name__ == "__main__":
         results = detector.analyze(df)
 
         anomalies = results[results["is_anomaly"]]
-        print(f"\nTotal records      : {len(results)}")
-        print(f"Anomalies detected : {len(anomalies)} ({len(anomalies) / len(results) * 100:.2f} %)")
+        print("\nTotal records      : {len(results)}")
+        print("Anomalies detected : {len(anomalies)} ({len(anomalies) / len(results) * 100:.2f} %)")
 
         top_anomalies = anomalies.sort_values(by='anomaly_score').head(10)
         top_anomalies.to_csv('alerts.csv', index=False)
         print("\n✅ Alerts saved in 'alerts.csv'")
     else:
-        print(f"❌ Error: {data_path} not found.")
+        print("❌ Error: {data_path} not found.")
