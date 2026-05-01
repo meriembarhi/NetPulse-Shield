@@ -9,7 +9,9 @@ Validation Criteria:
 - Semantic matching between a threat query and expert knowledge.
 - Presence of actionable technical keywords in the generated advice.
 """
-
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from advisor import NetworkSecurityAdvisor
 
 def test_rag_remediation_accuracy():

@@ -9,7 +9,9 @@ Validation Criteria:
 - Model returns -1 (Anomaly) for traffic features exceeding normal thresholds.
 - Dataframe compatibility for real-time traffic features (Sload, sttl, sbytes).
 """
-
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pandas as pd
 from detector import NetworkAnomalyDetector
 
