@@ -1,0 +1,51 @@
+# .github/workflows/ci.yml
+# -----------------------------------------------------------------------------
+# NetPulse-Shield: Continuous Integration (CI) Pipeline
+# -----------------------------------------------------------------------------
+# This workflow automates the validation of the network security system.
+# It ensures that every code change is technically sound by:
+# 1. Verifying Python code style and quality (Linting with Ruff).
+# 2. Running automated unit tests (Pytest) to validate detection & remediation logic.
+# -----------------------------------------------------------------------------
+
+name: NetPulse-Shield CI
+
+# Trigger the workflow on every push to the 'main' branch or when a Pull Request is opened
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    # Run the automation on a clean, virtualized Ubuntu server
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Download the repository code onto the virtual server
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 2. Set up the specific Python environment required for the project
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    # 3. Install necessary networking, ML, and AI libraries
+    # Note: These must match your local development environment
+    - name: Install Project Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas scikit-learn pytest ruff sentence-transformers faiss-cpu
+
+    # 4. Static Analysis: Check for syntax errors and style violations
+    # Ruff is used to keep the codebase clean and professional
+    - name: Lint with Ruff
+      run: ruff check .
+
+    # 5. Dynamic Analysis: Run the validation suite
+    # Executes tests in /tests to verify Isolation Forest and RAG logic
+    - name: Run Automated Test Suite
+      run: pytest tests/
