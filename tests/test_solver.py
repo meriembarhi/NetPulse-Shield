@@ -10,7 +10,6 @@ Validation Criteria:
 - Presence of actionable technical keywords in the generated advice.
 """
 
-import pytest
 from advisor import NetworkSecurityAdvisor
 
 def test_rag_remediation_accuracy():

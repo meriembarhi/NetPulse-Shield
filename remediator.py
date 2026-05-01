@@ -24,7 +24,7 @@ def check_ollama_status():
 
 def get_security_advice(anomaly_data):
     """Interroge Llama 3 pour obtenir un diagnostic structuré et des commandes Cisco.[cite: 2]"""
-    print(f"🧠 Analyzing anomaly data with Llama 3...")
+    print("🧠 Analyzing anomaly data with Llama 3...")
     
     # Updated Prompt: Forces categorization and professional formatting to avoid vague responses.
     prompt = f"""

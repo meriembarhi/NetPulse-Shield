@@ -42,7 +42,9 @@ class TFIDFEmbeddings(Embeddings):
         self._fitted = True
 
     def embed_documents(self, texts):
-        if not self._fitted: self._fit(texts)
+        # FIXED: Split into two lines to satisfy Ruff E701
+        if not self._fitted:
+            self._fit(texts)
         matrix = self._vectorizer.transform(texts).toarray().astype(np.float32)
         return (matrix / np.linalg.norm(matrix, axis=1, keepdims=True)).tolist()
 

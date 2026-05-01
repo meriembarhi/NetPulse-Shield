@@ -66,12 +66,13 @@ class NetworkAnomalyDetector:
             n_jobs=-1 # Utilise tous les coeurs CPU
         )
 
-        print(f"🧠 Entraînement de l'Isolation Forest...")
+        # FIXED: Removed 'f' prefix from string with no placeholders to pass Ruff F541
+        print("🧠 Entraînement de l'Isolation Forest...")
         self.model.fit(X)
         
         joblib.dump(self.model, self.model_path)
         joblib.dump(self.scaler, self.scaler_path)
-        print(f"💾 Modèle et Scaler sauvegardés.")
+        print("💾 Modèle et Scaler sauvegardés.")
 
     def evaluate(self, X: np.ndarray, y_true: pd.Series):
         """Calcule Precision, Recall et F1-score."""
@@ -118,7 +119,6 @@ if __name__ == "__main__":
     data_path = os.path.join("data", "final_project_data.csv")
     if os.path.exists(data_path):
         df = pd.read_csv(data_path)
-        # On utilise 'auto' pour que le script calcule la contamination lui-même
         detector = NetworkAnomalyDetector(contamination='auto') 
         results = detector.analyze(df)
 

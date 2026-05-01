@@ -11,7 +11,6 @@ Validation Criteria:
 """
 
 import pandas as pd
-import pytest
 from detector import NetworkAnomalyDetector
 
 def test_extreme_anomaly_detection():
