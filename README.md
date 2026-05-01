@@ -184,4 +184,4 @@ Edit `docs/remediation_knowledge.txt` to add new threat categories. Separate sec
 
 ## License
 
-[MIT] (LICENSE)
+MIT LICENSE
