@@ -49,21 +49,21 @@ Once an anomaly is detected, the Modular RAG Advisor takes over to find a soluti
        ↓
 ( detector.py ) ——————> Applies Isolation Forest to detect anomalies
        ↓
- [ alerts.csv ] ——————> Stores identified threats (IPs, Ports, Sload, etc.)
-       ↓
-( solver.py ) ————————> Orchestrates the Remediation Suite
+ [ alerts.csv ] <—————┐ PRE-FLIGHT CHECK
+       ↓              │ (solver/remediator verify this file exists)
+( solver.py ) ————————┘ 
      ↙   ↘
     /     \_________ [ Standard Path ] —> ( advisor.py ) + ( knowledge_base.py )
    /                                               ↓
 [ Advanced Path ]                          ( FAISS Similarity Search )
    ↓                                               ↓
-( remediator.py )                          [ Security_Report.txt ]
-   ↓                                       (Expert Guidance & Manuals)
+( remediator.py ) ——————> [ Strict Prompting ] —> [ Security_Report.txt ]
+   ↓                      (Risk & Attack Type)     (Expert Guidance)
 ( Llama 3 via Ollama )
    ↓
 [ Cisco IOS ACL Commands ]
 ```
-
+Note on Defensive Design: Both solver.py and remediator.py implement a "fail-fast" mechanism. They verify the presence of alerts.csv before initializing heavy AI models, ensuring the pipeline remains stable and user-friendly.
 ---
 
 ## Features
@@ -86,26 +86,31 @@ Once an anomaly is detected, the Modular RAG Advisor takes over to find a soluti
 
 ```
 NetPulse-Shield/
-NetPulse-Shield/
-├── detector.py                # ML Engine: Isolation Forest anomaly detector + joblib persistence
-├── solver.py                  # RAG Orchestrator: Entry point for the remediation suite
-├── advisor.py                 # RAG Logic: Performs FAISS similarity search and matches threats
-├── embeddings.py              # Vector Engine: Sentence-Transformers with TF-IDF fallback
-├── knowledge_base.py          # Intelligence Repository: Structured expert security manuals[cite: 1]
-├── remediator.py              # Advanced AI: Direct Llama 3 advisor for Cisco IOS commands
-├── dashboard.py               # Streamlit visual interface for interactive results
-├── clean_data.py              # Data Engineering: Pre-processes and filters raw datasets
-├── requirements.txt           # Python dependencies (scikit-learn, FAISS, ollama, etc.)
-├── Security_Report.txt        # Sample AI-generated security output
-├── .gitignore                 # Standard exclusions (including models/*.joblib)
-├── LICENSE                    # Project licensing
+├── .github/                   # CI/CD Configuration
+│   └── workflows/
+│       └── ci.yml             # GitHub Actions: Automated testing & linting pipeline
+├── tests/                     # Automated Validation Suite
+│   ├── test_detector.py       # Unit tests for ML Anomaly Detection
+│   └── test_solver.py         # Unit tests for RAG Logic and technical accuracy
+├── models/
+│   ├── netpulse_model.joblib  # Serialized Isolation Forest model
+│   └── netpulse_model_scaler.joblib # Serialized StandardScaler
 ├── data/
 │   └── README.md              # Instructions for dataset placement
-├── models/
-│   ├── netpulse_model.joblib  # Generated Isolation Forest model
-│   └── netpulse_model_scaler.joblib # Saved data scaler
-└── docs/
-    └── remediation_knowledge.txt # Raw knowledge source for the RAG advisor[cite: 1]
+├── docs/
+│   └── remediation_knowledge.txt # Raw security intelligence source
+├── detector.py                # ML Engine: Isolation Forest anomaly detector
+├── solver.py                  # RAG Orchestrator: With added Fail-Fast data verification[cite: 1]
+├── advisor.py                 # RAG Logic: FAISS similarity search
+├── embeddings.py              # Vector Engine: Sentence-Transformers with TF-IDF fallback
+├── knowledge_base.py          # Intelligence Repository: Maps manuals to vectors[cite: 1]
+├── remediator.py              # Advanced AI: Llama 3 synthesis with Strict Templating
+├── dashboard.py               # Streamlit SOC Dashboard
+├── clean_data.py              # Data Engineering: Feature extraction and scaling
+├── requirements.txt           # Dependencies (added pytest and ruff)
+├── Security_Report.txt        # Sample output from the RAG pipeline
+├── .gitignore                 # Excludes bytecode, data, and models
+└── LICENSE                    # MIT License
 ```
 
 ---
@@ -171,11 +176,10 @@ NetPulse-Shield — Network Anomaly Detector
 Total records analysed : 50000
 Anomalies detected     : 2710 (5.4 %)
 ✅ Alerts saved in 'alerts.csv'
-
+```
 ### 4. Run the AI Remediation Suite (solver.py)
 
-This module serves as the primary orchestrator for the RAG-based remediation pipeline. It reads identified threats from alerts.csv and generates specialized security reports by querying the internal intelligence system.
-
+This module serves as the primary orchestrator for the RAG-based remediation pipeline. It bridges the gap between raw detection and expert-level response.
 
 
 ```bash
@@ -183,13 +187,15 @@ python solver.py
 ```
 How the Pipeline Operates:
 
-Intelligent Retrieval: The advisor.py module takes raw anomaly data and queries a FAISS index to find the most relevant security protocols stored in knowledge_base.py.  
+🛡️ Fail-Fast & Defensive Initialization: Before loading heavy ML models or RAG embeddings, the script performs a pre-flight integrity check. Using the os.path.exists() validation logic, the system ensures alerts.csv is present. If the file is missing, the script terminates gracefully with clear instructions to run detector.py first, preventing common FileNotFoundError runtime crashes.
 
-Semantic Matching: Using the Sentence-Transformers engine in embeddings.py, the system understands the context of the threat—matching a "high-load volumetric spike" to a "DDoS Mitigation" manual even without exact keyword matches.  
+🧠 Intelligent Retrieval: The advisor.py module takes the raw anomaly data and queries a FAISS (Facebook AI Similarity Search) index. This allows the system to find the most relevant security protocols stored in knowledge_base.py based on mathematical similarity.
 
-Offline Resilience: In air-gapped network environments, the pipeline automatically switches to a TF-IDF vectorizer to ensure security advice is always available without an internet connection.  
+🌐 Semantic Matching: Powered by the Sentence-Transformers engine in embeddings.py, the system understands the technical context of a threat. For example, it can match a "high-load volumetric spike" to a "UDP Flood Mitigation" manual even if those exact words aren't in the raw log. 
 
-Expert Output: Generates a structured Security_Report.txt that provides a diagnostic summary, risk assessment, and step-by-step mitigation instructions.
+📶 Offline Resilience: Designed for Air-Gapped environments, the pipeline automatically detects internet availability. If offline, it switches from Transformer models to a TF-IDF vectorizer, ensuring security advice is never interrupted by connectivity issues  
+
+📑 Expert Output: The process culminates in a structured Security_Report.txt. This report provides a technical diagnosis, a risk assessment (Low to Critical), and step-by-step mitigation instructions.
 
 
 Example Output (Security_Report.txt):
@@ -223,7 +229,7 @@ Semantic Retrieval: Because it uses FAISS and Vector Embeddings, you don't need 
 Zero-Latency Knowledge: Accesses the curated manuals in knowledge_base.py instantly without searching through raw documentation files.
 
 ### 6. Advanced AI Remediation with Llama 3 (remediator.py)
-For environments with local AI support, this module leverages Ollama to provide a deeper level of technical synthesis. It transforms raw network anomalies into production-ready configuration commands.
+For security environments with local AI capability, this module leverages Ollama to provide deep technical synthesis. It acts as a bridge between abstract threat detection and production-ready hardware hardening.
 
 Prerequisites:
 
@@ -238,11 +244,15 @@ python remediator.py
 
 Features:
 
-Cisco IOS Integration: Unlike the standard advisor, this module is specifically prompted to generate ready-to-deploy Access Control List (ACL) commands to harden network infrastructure in real-time.
+🛡️ Fail-Fast Initialization: The script performs an automated pre-flight check for alerts.csv. If the detection phase was skipped, the system terminates gracefully with a diagnostic message, preventing runtime errors and ensuring pipeline stability. 
 
-Deep Feature Analysis: The AI interprets raw metrics like sttl (Time-to-Live) and sbytes to diagnose the specific attack vector (e.g., distinguishing between a simple scan and a complex C2 beacon).
+📋 Strict Response Templating: To eliminate vague AI feedback (e.g., "threat detected"), the module utilizes a rigid engineering prompt. This forces Llama 3 to categorize the incident by Attack Type, Risk Level (Low to Critical), and Technical Analysis, ensuring every report meets SOC (Security Operations Center) standards.
 
-Risk Assessment: Provides a "Senior Engineer" perspective on the threat's impact on network availability and data integrity.
+🛠️ Cisco IOS Configuration Synthesis: This module is specifically optimized for infrastructure management. The AI generates exact Access Control List (ACL) commands tailored to the detected anomaly, allowing for immediate deployment on edge routers to block malicious source IPs.
+
+🧠 Deep Feature Interpretation: Beyond simple alerting, the AI interprets raw network metrics such as sttl (Time-to-Live) and sbytes. This allows it to distinguish between a volumetric DDoS attack and more subtle threats like C2 (Command & Control) beacons.
+
+🔒 Local-First Privacy: By running Llama 3 entirely on-premises via Ollama, sensitive network topology and security data never leave your private infrastructure.
 
 ### 7. Launch the interactive dashboard
 
