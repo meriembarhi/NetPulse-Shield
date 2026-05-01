@@ -7,17 +7,6 @@ to synthesize detected network threats into concrete remediation
 scripts. It is specifically tuned to output Cisco IOS configurations, 
 allowing for rapid response and infrastructure hardening.
 """
-
-"""
-remediator.py - Advanced AI Synthesis & Cisco Command Generator
-
-This module acts as a high-level alternative to the RAG advisor. 
-It interfaces directly with a local Llama 3 instance via Ollama 
-to synthesize detected network threats into concrete remediation 
-scripts. It is specifically tuned to output Cisco IOS configurations, 
-allowing for rapid response and infrastructure hardening.[cite: 2]
-"""
-
 import ollama
 import sys
 import requests
