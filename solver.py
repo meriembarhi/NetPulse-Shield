@@ -14,12 +14,41 @@ Workflow
 4.  Outputs a structured security report for the network administrator.
 """
 
-# solver.py
+import os
+import sys
 from advisor import NetworkSecurityAdvisor
 
-if __name__ == "__main__":
+def main():
+    # --- STEP 1: SAFETY CHECK ---
+    # Verify if the detector has been run and generated the alert file
+    ALERT_FILE = "alerts.csv"
+    
+    if not os.path.exists(ALERT_FILE):
+        print("\n" + "="*55)
+        print("🛡️  NETPULSE-SHIELD: SYSTEM ERROR")
+        print("="*55)
+        print(f"❌ Could not find: {ALERT_FILE}")
+        print("👉 Action Required: Run 'python detector.py' first to identify anomalies.")
+        print("="*55 + "\n")
+        sys.exit(1)
+
+    # --- STEP 2: INITIALIZATION ---
     print("🛡️ NetPulse-Shield — RAG Advisor (Modular)")
+    print("✅ Alerts detected. Initializing RAG Remediation Pipeline...")
+    
+    # Initializes the advisor (loads knowledge base and builds vector store)
     advisor = NetworkSecurityAdvisor()
+
+    # --- STEP 3: PROCESSING ---
+    # Example Query (You can later update this to loop through your alerts.csv)
     query = "Lateral movement detected via internal port scanning on port 445."
-    print(f"\nQuery: {query}\n" + "-"*50)
-    print(advisor.get_remediation_advice(query))
+    
+    print(f"\n[ANALYSIS] Query: {query}")
+    print("-" * 55)
+    
+    # Get and print the remediation advice
+    report = advisor.get_remediation_advice(query)
+    print(report)
+
+if __name__ == "__main__":
+    main()
