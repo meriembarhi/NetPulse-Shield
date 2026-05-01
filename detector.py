@@ -25,21 +25,19 @@ class NetworkAnomalyDetector:
         if os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
             self.model = joblib.load(self.model_path)
             self.scaler = joblib.load(self.scaler_path)
-            print("✅ Modèle et Scaler chargés depuis {self.model_path}")
+            # FIXED: Added 'f' prefix
+            print(f"✅ Modèle et Scaler chargés depuis {self.model_path}")
         else:
-            self.model = None # Sera initialisé pendant l'entraînement
+            self.model = None 
             self.scaler = StandardScaler()
             print("🆕 Nouveau détecteur initialisé (en attente d'entraînement).")
 
     def preprocess(self, df: pd.DataFrame, training: bool = False) -> np.ndarray:
-        # Sélection des colonnes numériques
         cols_to_exclude = ['Label', 'label', 'anomaly', 'is_anomaly', 'anomaly_score']
         self.feature_columns = [c for c in df.select_dtypes(include=[np.number]).columns 
                                if c not in cols_to_exclude]
 
         features = df[self.feature_columns].copy()
-        
-        # --- GESTION DES VALEURS INFINIES ET MANQUANTES ---
         features.replace([np.inf, -np.inf], np.nan, inplace=True)
         features.fillna(0, inplace=True)
         
@@ -49,24 +47,24 @@ class NetworkAnomalyDetector:
             return self.scaler.transform(features)
 
     def train(self, X: np.ndarray, y_true: pd.Series = None) -> None:
-        """Détermine la contamination et entraîne l'Isolation Forest."""
+        """Détermine la contamination réelle et entraîne l'Isolation Forest."""
         
-        # Calcul de la contamination réelle si Label est présent
+        # --- DYNAMIC CONTAMINATION LOGIC ---
         if self.contamination == 'auto' and y_true is not None:
-            attack_count = (y_true == 1).sum()
+            # We assume any value that isn't 0 (Normal) is an attack
+            attack_count = (y_true != 0).sum() 
             self.contamination = max(min(attack_count / len(y_true), 0.5), 0.01)
-            print("📊 Contamination calculée depuis le dataset : {self.contamination:.4f}")
+            print(f"📊 Contamination réelle détectée : {self.contamination:.4f}")
         elif self.contamination == 'auto':
-            self.contamination = 0.05 # Valeur par défaut si aucun label n'est fourni
+            self.contamination = 0.05 
 
         self.model = IsolationForest(
             contamination=self.contamination,
             n_estimators=self.n_estimators,
             random_state=42,
-            n_jobs=-1 # Utilise tous les coeurs CPU
+            n_jobs=-1 
         )
 
-        # FIXED: Removed 'f' prefix from string with no placeholders to pass Ruff F541
         print("🧠 Entraînement de l'Isolation Forest...")
         self.model.fit(X)
         
@@ -75,22 +73,21 @@ class NetworkAnomalyDetector:
         print("💾 Modèle et Scaler sauvegardés.")
 
     def evaluate(self, X: np.ndarray, y_true: pd.Series):
-        """Calcule Precision, Recall et F1-score."""
         if y_true is None:
             return
             
         predictions = self.model.predict(X)
-        # Mapping: Isolation Forest (-1 = Anomaly, 1 = Normal) 
-        # vs Dataset (1 = Attack, 0 = Normal)
         y_pred = [1 if p == -1 else 0 for p in predictions]
         
         print("\n--- 📈 Model Performance Report ---")
-        print(classification_report(y_true, y_pred, target_names=['Normal', 'Attack']))
+        # Ensure we compare apples to apples (binary labels)
+        binary_y_true = (y_true != 0).astype(int)
+        print(classification_report(binary_y_true, y_pred, target_names=['Normal', 'Attack']))
 
     def analyze(self, df: pd.DataFrame, force_train: bool = False) -> pd.DataFrame:
         is_trained = self.model is not None and hasattr(self.model, "estimators_")
         
-        # On passe y_true pour aider au calcul de la contamination
+        # Capture the labels for contamination calculation[cite: 1]
         y_true = df['Label'] if 'Label' in df.columns else None
         
         X = self.preprocess(df, training=(not is_trained or force_train))
@@ -106,7 +103,6 @@ class NetworkAnomalyDetector:
         results["anomaly_score"] = scores
         results["is_anomaly"] = results["anomaly"] == -1
         
-        # Évaluation finale
         if y_true is not None:
             self.evaluate(X, y_true)
             
@@ -123,11 +119,13 @@ if __name__ == "__main__":
         results = detector.analyze(df)
 
         anomalies = results[results["is_anomaly"]]
-        print("\nTotal records      : {len(results)}")
-        print("Anomalies detected : {len(anomalies)} ({len(anomalies) / len(results) * 100:.2f} %)")
+        # FIXED: Added 'f' prefixes for terminal output
+        print(f"\nTotal records      : {len(results)}")
+        print(f"Anomalies detected : {len(anomalies)} ({len(anomalies) / len(results) * 100:.2f} %)")
 
         top_anomalies = anomalies.sort_values(by='anomaly_score').head(10)
         top_anomalies.to_csv('alerts.csv', index=False)
         print("\n✅ Alerts saved in 'alerts.csv'")
     else:
-        print("❌ Error: {data_path} not found.")
+        # FIXED: Added 'f' prefix
+        print(f"❌ Error: {data_path} not found.")
