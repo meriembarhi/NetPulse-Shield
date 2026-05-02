@@ -2,7 +2,10 @@ import os
 import pandas as pd
 import streamlit as st
 import plotly.express as px
-from detector import NetworkAnomalyDetector 
+from detector import NetworkAnomalyDetector
+from db import get_session, create_db, Alert, AuditLog
+from advisor import NetworkSecurityAdvisor
+import json
 
 # =========================
 # Page Configuration
@@ -27,6 +30,10 @@ st.markdown("""
 DATA_FILE = "data/final_project_data.csv"
 ALERTS_FILE = "alerts.csv"
 REPORT_FILE = "Security_Report.txt"
+DB_PATH = "sqlite:///alerts.db"
+
+# Ensure DB exists
+create_db(DB_PATH)
 
 def load_csv(file_path):
     if os.path.exists(file_path):
@@ -43,18 +50,37 @@ if st.sidebar.button("🚀 1. Run Network Analysis"):
     with st.spinner("Analyse du trafic (Isolation Forest)..."):
         try:
             raw_data = pd.read_csv(DATA_FILE)
-            detector = NetworkAnomalyDetector(contamination=0.05)
-            detector.analyze(raw_data)
+            detector = NetworkAnomalyDetector(contamination=0.05, persist_to_db=True, db_path=DB_PATH)
+            results = detector.analyze(raw_data)
+            # write alerts.csv for backward compatibility
+            alerts_df = results[results["is_anomaly"]]
+            alerts_df.to_csv(ALERTS_FILE, index=False)
             st.sidebar.success("Détection terminée !")
             st.cache_data.clear() 
         except Exception as e:
             st.sidebar.error(f"Erreur Détection : {e}")
 
 if st.sidebar.button("🤖 2. Generate AI Advice"):
-    if os.path.exists(ALERTS_FILE):
-        with st.spinner("Llama 3 analyse les alertes..."):
-            # Simulation de l'appel au script de remédiation
-            st.sidebar.success("Rapport IA généré !")
+    session = get_session(DB_PATH)
+    alerts = session.query(Alert).filter(Alert.advice == None).all()
+    if alerts:
+        with st.spinner("Génération de conseils IA..."):
+            advisor = NetworkSecurityAdvisor()
+            for a in alerts:
+                # Build a short description from features
+                try:
+                    features = json.loads(a.feature_json)
+                    description = f"Anomalous flow - score={a.anomaly_score} features={list(features.keys())}"
+                except Exception:
+                    description = f"Anomalous flow - score={a.anomaly_score}"
+
+                advice = advisor.get_remediation_advice(description)
+                a.advice = advice
+                session.add(AuditLog(alert_id=a.id, action='advice_generated', actor='dashboard'))
+            session.commit()
+            st.sidebar.success("Rapport IA généré et stocké !")
+    else:
+        st.sidebar.warning("Aucune alerte sans conseil à traiter.")
     else:
         st.sidebar.warning("Veuillez d'abord lancer l'analyse.")
 
@@ -63,7 +89,9 @@ page = st.sidebar.radio("Navigation", ["Overview", "EDA & Insights", "Detected A
 
 # Load Data
 data = load_csv(DATA_FILE)
-alerts = load_csv(ALERTS_FILE)
+session = get_session(DB_PATH)
+alerts_query = session.query(Alert).order_by(Alert.created_at.desc())
+alerts = pd.read_sql(alerts_query.statement, alerts_query.session.bind) if data is not None else None
 
 # Header
 st.title("🛡️ NetPulse-Shield Dashboard")
@@ -122,9 +150,18 @@ elif page == "EDA & Insights":
 
 elif page == "Detected Alerts":
     st.header("🚨 Menaces Identifiées (Top 10)")
-    if alerts is not None:
+    if alerts is not None and len(alerts) > 0:
         st.error(f"Top 10 des flux suspects sur {len(alerts)} anomalies.")
-        st.table(alerts.head(10)) # Affichage en tableau fixe pour la clarté
+        # Interactive table with triage controls
+        for idx, row in alerts.head(10).iterrows():
+            with st.expander(f"Alert #{row['id']} - Score {row['anomaly_score']}"):
+                st.write(row[['created_at', 'anomaly_score', 'severity', 'status']])
+                new_status = st.selectbox('Status', ['new', 'investigating', 'resolved', 'false_positive'], index=['new','investigating','resolved','false_positive'].index(row['status']))
+                if st.button(f"Update status for {row['id']}"):
+                    session.query(Alert).filter(Alert.id == int(row['id'])).update({"status": new_status})
+                    session.add(AuditLog(alert_id=int(row['id']), action='status_update', actor='dashboard', note=new_status))
+                    session.commit()
+                    st.success('Status updated')
     else:
         st.info("Aucune alerte pour le moment.")
 

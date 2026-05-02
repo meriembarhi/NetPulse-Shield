@@ -17,10 +17,14 @@ class NetworkAnomalyDetector:
     """Détecteur d'anomalies avec expertise en filtrage et évaluation."""
 
     def __init__(self, contamination='auto', n_estimators=100,
-                 model_path="models/netpulse_model.joblib"):
+                 model_path="models/netpulse_model.joblib",
+                 persist_to_db: bool = False,
+                 db_path: str = "sqlite:///alerts.db"):
         self.contamination = contamination
         self.n_estimators = n_estimators
         self.model_path = model_path
+        self.persist_to_db = persist_to_db
+        self.db_path = db_path
         self.scaler_path = model_path.replace(".joblib", "_scaler.joblib")
 
         os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
@@ -277,6 +281,18 @@ class NetworkAnomalyDetector:
 
         if y_true is not None:
             self.evaluate(X, y_true)
+
+        # Persist alerts to DB if requested (only anomalous rows)
+        if self.persist_to_db:
+            try:
+                from db import persist_alerts_from_df
+
+                alerts_df = results[results["is_anomaly"]].copy()
+                if len(alerts_df) > 0:
+                    inserted = persist_alerts_from_df(alerts_df, db_path=self.db_path)
+                    print(f"💾 Persisted {inserted} alerts to DB: {self.db_path}")
+            except Exception as e:
+                print(f"⚠️  Warning: Failed to persist alerts to DB: {e}")
 
         return results
 
