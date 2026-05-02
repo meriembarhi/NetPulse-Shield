@@ -62,27 +62,28 @@ if st.sidebar.button("🚀 1. Run Network Analysis"):
 
 if st.sidebar.button("🤖 2. Generate AI Advice"):
     session = get_session(DB_PATH)
-    alerts = session.query(Alert).filter(Alert.advice == None).all()
-    if alerts:
-        with st.spinner("Génération de conseils IA..."):
-            advisor = NetworkSecurityAdvisor()
-            for a in alerts:
-                # Build a short description from features
-                try:
-                    features = json.loads(a.feature_json)
-                    description = f"Anomalous flow - score={a.anomaly_score} features={list(features.keys())}"
-                except Exception:
-                    description = f"Anomalous flow - score={a.anomaly_score}"
-
-                advice = advisor.get_remediation_advice(description)
-                a.advice = advice
-                session.add(AuditLog(alert_id=a.id, action='advice_generated', actor='dashboard'))
-            session.commit()
-            st.sidebar.success("Rapport IA généré et stocké !")
-    else:
-        st.sidebar.warning("Aucune alerte sans conseil à traiter.")
-    else:
+    if session is None:
         st.sidebar.warning("Veuillez d'abord lancer l'analyse.")
+    else:
+        alerts = session.query(Alert).filter(Alert.advice.is_(None)).all()
+        if alerts:
+            with st.spinner("Génération de conseils IA..."):
+                advisor = NetworkSecurityAdvisor()
+                for a in alerts:
+                    # Build a short description from features
+                    try:
+                        features = json.loads(a.feature_json)
+                        description = f"Anomalous flow - score={a.anomaly_score} features={list(features.keys())}"
+                    except Exception:
+                        description = f"Anomalous flow - score={a.anomaly_score}"
+
+                    advice = advisor.get_remediation_advice(description)
+                    a.advice = advice
+                    session.add(AuditLog(alert_id=a.id, action='advice_generated', actor='dashboard'))
+                session.commit()
+                st.sidebar.success("Rapport IA généré et stocké !")
+        else:
+            st.sidebar.warning("Aucune alerte sans conseil à traiter.")
 
 st.sidebar.markdown("---")
 page = st.sidebar.radio("Navigation", ["Overview", "EDA & Insights", "Detected Alerts", "Security Report"])
