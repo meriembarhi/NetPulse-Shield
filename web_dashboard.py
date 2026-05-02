@@ -373,7 +373,6 @@ tr:hover td { background: var(--surf); }
 .status-value { font-weight: 600; }
 </style>
 </head>
-</head>
 <body>
 
 <div class="container">
