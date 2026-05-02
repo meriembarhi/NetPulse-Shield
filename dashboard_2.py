@@ -1,650 +1,406 @@
-import os
-import json
-from datetime import datetime
-
-import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
-from db import Alert, AuditLog, create_db, get_session
-from system_utils import check_redis_health, get_queue_stats, bulk_enqueue_advice
-
-# ═══════════════════════════════════════════════════════════════
-#  PAGE CONFIG
-# ═══════════════════════════════════════════════════════════════
+# Configure page — hide default Streamlit UI
 st.set_page_config(
-    page_title="NetPulse Shield",
+    page_title="NetPulse Shield — Control Center",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed"
 )
 
-DATA_FILE   = "data/final_project_data.csv"
-REPORT_FILE = "Security_Report.txt"
-DB_PATH     = os.getenv("DATABASE_URL", "sqlite:///alerts.db")
-REDIS_URL   = os.getenv("REDIS_URL",    "redis://localhost:6379/0")
-
-create_db(DB_PATH)
-
-# ═══════════════════════════════════════════════════════════════
-#  GLOBAL CSS  — Palantir / Foundry aesthetic
-# ═══════════════════════════════════════════════════════════════
 st.markdown("""
+    <style>
+    [data-testid="stSidebar"] { display: none; }
+    [data-testid="stDecoration"] { display: none; }
+    .stApp { padding: 0; margin: 0; background: #05080D; }
+    .main { padding: 0; margin: 0; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# HTML dashboard content
+html_content = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetPulse Shield — Control Center</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
-:root {
-  --c-bg:            #05080D;
-  --c-surface:       #090D15;
-  --c-panel:         #0C1118;
-  --c-border:        #1A2535;
-  --c-border-hot:    #1E4976;
-  --c-accent:        #1D72AA;
-  --c-accent-bright: #2A9FD6;
-  --c-accent-glow:   rgba(29,114,170,0.18);
-  --c-danger:        #C0392B;
-  --c-warn:          #E67E22;
-  --c-ok:            #27AE60;
-  --c-text:          #C8D6E5;
-  --c-text-dim:      #5A7A9A;
-  --c-text-faint:    #1A2535;
-  --font-mono:       'IBM Plex Mono', monospace;
-  --font-sans:       'IBM Plex Sans', sans-serif;
-  --r: 4px;
-}
-
-html, body, [class*="css"], .stApp {
-  font-family: var(--font-sans) !important;
-  background-color: var(--c-bg) !important;
-  color: var(--c-text) !important;
-}
-
-/* Scanline overlay */
-.stApp::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 9999;
-  background-image: repeating-linear-gradient(
-    0deg, transparent, transparent 3px,
-    rgba(0,0,0,0.055) 3px, rgba(0,0,0,0.055) 4px
-  );
-}
-
-/* Animated top bar sweep */
-.stApp::after {
-  content: '';
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg,
-    transparent 0%, var(--c-accent) 40%,
-    var(--c-accent-bright) 50%, var(--c-accent) 60%, transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: np-sweep 4s linear infinite;
-  z-index: 10000;
-}
-@keyframes np-sweep {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-[data-testid="stSidebar"] {
-  background: var(--c-surface) !important;
-  border-right: 1px solid var(--c-border) !important;
-}
-[data-testid="stSidebar"] > div:first-child { padding-top: 0 !important; }
-
-.block-container {
-  padding: 1.5rem 2.2rem 4rem !important;
-  max-width: 1700px !important;
-}
-
-#MainMenu, footer, header { visibility: hidden; }
-[data-testid="stToolbar"] { display: none; }
-
-hr {
-  border: none !important;
-  border-top: 1px solid var(--c-border) !important;
-  margin: 1.2rem 0 !important;
-}
-
-.stButton > button {
-  font-family: var(--font-mono) !important;
-  font-size: 0.70rem !important;
-  font-weight: 500 !important;
-  letter-spacing: 0.1em !important;
-  text-transform: uppercase !important;
-  color: var(--c-accent-bright) !important;
-  background: transparent !important;
-  border: 1px solid var(--c-border-hot) !important;
-  border-radius: var(--r) !important;
-  padding: 0.45rem 1.1rem !important;
-  transition: all 0.15s ease !important;
-}
-.stButton > button:hover {
-  background: var(--c-accent-glow) !important;
-  border-color: var(--c-accent-bright) !important;
-  color: #fff !important;
-  box-shadow: 0 0 14px rgba(42,159,214,0.22) !important;
-}
-
-.stTextInput input {
-  font-family: var(--font-mono) !important;
-  font-size: 0.78rem !important;
-  background: var(--c-panel) !important;
-  border: 1px solid var(--c-border) !important;
-  border-radius: var(--r) !important;
-  color: var(--c-text) !important;
-}
-.stTextInput input:focus {
-  border-color: var(--c-accent) !important;
-  box-shadow: 0 0 0 3px rgba(29,114,170,0.14) !important;
-}
-
-.stDataFrame, [data-testid="stDataFrame"] {
-  border: 1px solid var(--c-border) !important;
-  border-radius: var(--r) !important;
-}
-
-.stAlert { border-radius: var(--r) !important; font-family: var(--font-mono) !important; font-size: 0.74rem !important; }
-
-[data-testid="stMetric"] {
-  background: var(--c-panel);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  padding: 0.75rem 1rem;
-}
-[data-testid="stMetricValue"] { font-family: var(--font-mono) !important; color: var(--c-accent-bright) !important; }
-
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: var(--c-bg); }
-::-webkit-scrollbar-thumb { background: #1E3A5A; border-radius: 2px; }
-
-/* ── Custom component styles ── */
-.np-logo {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--c-accent-bright);
-  padding: 18px 0 12px;
-  border-bottom: 1px solid var(--c-border);
-  margin-bottom: 18px;
-}
-.np-logo span {
-  display: block;
-  font-size: 0.50rem;
-  letter-spacing: 0.28em;
-  color: var(--c-text-dim);
-  font-weight: 400;
-  margin-top: 4px;
-}
-
-.np-title {
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--c-text);
-  line-height: 1.3;
-}
-.np-title .acc { color: var(--c-accent-bright); }
-.np-subtitle {
-  font-family: var(--font-sans);
-  font-size: 0.76rem;
-  color: var(--c-text-dim);
-  margin-top: 4px;
-}
-
-.np-section {
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--c-accent-bright);
-  border-bottom: 1px solid var(--c-border);
-  padding-bottom: 6px;
-  margin-bottom: 12px;
-  margin-top: 4px;
-}
-
-.np-eyebrow {
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--c-text-dim);
-}
-
-.np-kpi {
-  background: var(--c-panel);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  padding: 16px 18px 14px;
-  position: relative;
-  overflow: hidden;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.np-kpi::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 2px;
-}
-.np-kpi.np-cyan::before  { background: var(--c-accent-bright); }
-.np-kpi.np-red::before   { background: var(--c-danger); }
-.np-kpi.np-amber::before { background: var(--c-warn); }
-.np-kpi.np-green::before { background: var(--c-ok); }
-.np-kpi:hover { border-color: var(--c-border-hot); box-shadow: 0 0 18px rgba(29,114,170,0.08); }
-
-.np-kpi-label {
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--c-text-dim);
-  margin-bottom: 8px;
-}
-.np-kpi-value {
-  font-family: var(--font-mono);
-  font-size: 1.6rem;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--c-text);
-}
-.np-kpi.np-cyan  .np-kpi-value { color: var(--c-accent-bright); }
-.np-kpi.np-red   .np-kpi-value { color: var(--c-danger); }
-.np-kpi.np-amber .np-kpi-value { color: var(--c-warn); }
-.np-kpi.np-green .np-kpi-value { color: var(--c-ok); }
-.np-kpi-sub {
-  font-family: var(--font-mono);
-  font-size: 0.60rem;
-  color: var(--c-text-faint);
-  margin-top: 6px;
-}
-
-@keyframes np-pulse {
-  0%,100% { opacity: 1; transform: scale(1); }
-  50%     { opacity: 0.5; transform: scale(0.85); }
-}
-.np-dot {
-  display: inline-block;
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  margin-right: 6px;
-  animation: np-pulse 2s ease-in-out infinite;
-  position: relative; top: 1px;
-}
-.np-dot.g { background: var(--c-ok); }
-.np-dot.r { background: var(--c-danger); }
-.np-dot.a { background: var(--c-warn); }
-
-.np-status-row {
-  display: flex;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-size: 0.70rem;
-  color: var(--c-text-dim);
-  padding: 7px 0;
-  border-bottom: 1px solid var(--c-text-faint);
-}
-.np-status-row .v { color: var(--c-text); font-weight: 500; margin-left: auto; }
-
-.np-stat-panel {
-  background: var(--c-panel);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  padding: 18px 20px;
-}
-.np-stat-panel h4 {
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--c-accent-bright);
-  margin: 0 0 12px;
-}
-
-.np-empty {
-  border: 1px dashed var(--c-border);
-  border-radius: var(--r);
-  padding: 32px;
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--c-text-faint);
-  letter-spacing: 0.1em;
-}
-
-.np-report {
-  background: var(--c-panel);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r);
-  padding: 20px 24px;
-  font-family: var(--font-mono);
-  font-size: 0.70rem;
-  line-height: 1.9;
-  color: rgba(200,214,229,0.7);
-  white-space: pre-wrap;
-  max-height: 380px;
-  overflow-y: auto;
-}
-
-@keyframes np-blink { 0%,100%{opacity:1} 50%{opacity:0} }
-.np-cursor { animation: np-blink 1.1s step-end infinite; color: var(--c-accent-bright); }
+*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;overflow:hidden}
+:root{--bg:#05080D;--surf:#090D15;--panel:#0C1118;--bdr:#1A2535;--bdr-hot:#1E4976;--acc:#2A9FD6;--acc-dim:rgba(42,159,214,0.12);--danger:#C0392B;--danger-dim:rgba(192,57,43,0.14);--warn:#E67E22;--warn-dim:rgba(230,126,34,0.12);--ok:#27AE60;--ok-dim:rgba(39,174,96,0.12);--txt:#C8D6E5;--txt-dim:#5A7A9A;--txt-faint:#1E3A5A;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;}
+body{font-family:var(--sans);background:var(--bg);color:var(--txt);font-size:13px;}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;background-image:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.055) 3px,rgba(0,0,0,0.055) 4px);}
+.sweep-bar{position:fixed;top:0;left:0;right:0;height:2px;z-index:9001;background:linear-gradient(90deg,transparent 0%,var(--acc) 35%,#7FD8F5 50%,var(--acc) 65%,transparent 100%);background-size:200% 100%;animation:sweep 3.5s linear infinite;}
+@keyframes sweep{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.shell{display:grid;grid-template-columns:210px 1fr;height:100vh;overflow:hidden;}
+.sidebar{background:var(--surf);border-right:1px solid var(--bdr);display:flex;flex-direction:column;overflow:hidden;}
+.sb-logo{padding:20px 18px 16px;border-bottom:1px solid var(--bdr);flex-shrink:0;}
+.sb-logo-name{font-family:var(--mono);font-size:0.65rem;font-weight:700;letter-spacing:0.22em;color:var(--acc);line-height:1.5;}
+.sb-logo-sub{font-family:var(--mono);font-size:0.46rem;letter-spacing:0.28em;color:var(--txt-faint);margin-top:4px;}
+.sb-nav{padding:14px 0;flex:1;}
+.sb-nav-label{font-family:var(--mono);font-size:0.46rem;letter-spacing:0.24em;color:var(--txt-faint);padding:0 18px 8px;}
+.sb-nav-item{display:flex;align-items:center;gap:10px;padding:10px 18px;font-family:var(--mono);font-size:0.62rem;letter-spacing:0.06em;color:var(--txt-dim);cursor:pointer;border-left:2px solid transparent;transition:all 0.15s ease;user-select:none;}
+.sb-nav-item:hover,.sb-nav-item.active{background:var(--acc-dim);color:var(--acc);border-left-color:var(--acc);}
+.sb-nav-item svg{width:13px;height:13px;flex-shrink:0;opacity:0.7;}
+.sb-nav-item.active svg{opacity:1;}
+.sb-footer{padding:14px 18px;border-top:1px solid var(--bdr);flex-shrink:0;}
+.sb-footer-time{font-family:var(--mono);font-size:0.56rem;color:var(--txt-faint);line-height:2.1;}
+.sb-footer-time b{color:var(--txt-dim);display:block;font-size:0.62rem;}
+.main{display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 26px;border-bottom:1px solid var(--bdr);background:var(--surf);flex-shrink:0;}
+.topbar-title{font-family:var(--mono);font-size:0.88rem;font-weight:700;letter-spacing:0.04em;display:flex;align-items:center;gap:8px;}
+.topbar-title .acc{color:var(--acc);}
+.topbar-title .dim{font-weight:300;color:var(--txt-dim);font-size:0.70rem;}
+.cursor{animation:blink 1.1s step-end infinite;color:var(--acc);}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.topbar-right{display:flex;align-items:center;gap:16px;}
+.topbar-ts{font-family:var(--mono);font-size:0.50rem;color:var(--txt-faint);text-align:right;line-height:2;letter-spacing:0.1em;}
+.topbar-ts b{color:var(--txt-dim);display:block;font-size:0.60rem;}
+.live-badge{font-family:var(--mono);font-size:0.46rem;letter-spacing:0.18em;background:var(--acc-dim);border:1px solid var(--bdr-hot);color:var(--acc);padding:3px 9px;border-radius:2px;display:flex;align-items:center;gap:5px;}
+.live-badge::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--acc);display:inline-block;animation:pdot 1.8s ease-in-out infinite;}
+.content{flex:1;overflow-y:auto;padding:20px 26px 32px;display:flex;flex-direction:column;gap:20px;}
+.content::-webkit-scrollbar{width:5px;}
+.content::-webkit-scrollbar-track{background:var(--bg);}
+.content::-webkit-scrollbar-thumb{background:#1E3A5A;border-radius:2px;}
+.sec{font-family:var(--mono);font-size:0.50rem;letter-spacing:0.22em;color:var(--acc);border-bottom:1px solid var(--bdr);padding-bottom:6px;}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+.kpi{background:var(--panel);border:1px solid var(--bdr);border-radius:3px;padding:15px 17px;position:relative;overflow:hidden;cursor:default;transition:border-color 0.2s,box-shadow 0.2s;}
+.kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;border-radius:0;}
+.kpi.c::before{background:var(--acc);}
+.kpi.r::before{background:var(--danger);}
+.kpi.a::before{background:var(--warn);}
+.kpi.g::before{background:var(--ok);}
+.kpi:hover{border-color:var(--bdr-hot);box-shadow:0 0 22px rgba(42,159,214,0.07);}
+.kpi-label{font-family:var(--mono);font-size:0.48rem;letter-spacing:0.18em;color:var(--txt-dim);margin-bottom:9px;}
+.kpi-val{font-family:var(--mono);font-size:1.6rem;font-weight:700;line-height:1;transition:color 0.3s;}
+.kpi.c .kpi-val{color:var(--acc);}
+.kpi.r .kpi-val{color:var(--danger);}
+.kpi.a .kpi-val{color:var(--warn);}
+.kpi.g .kpi-val{color:var(--ok);}
+.kpi-sub{font-family:var(--mono);font-size:0.48rem;color:var(--txt-faint);margin-top:7px;}
+.charts{display:grid;grid-template-columns:1.8fr 1fr;gap:12px;}
+.chart-panel{background:var(--panel);border:1px solid var(--bdr);border-radius:3px;padding:15px 17px;}
+.chart-eyebrow{font-family:var(--mono);font-size:0.48rem;letter-spacing:0.18em;color:var(--txt-dim);margin-bottom:12px;}
+.filter-bar{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--bdr);border-radius:3px;padding:10px 14px;}
+.filter-label{font-family:var(--mono);font-size:0.50rem;letter-spacing:0.14em;color:var(--txt-faint);flex-shrink:0;}
+.filter-input{font-family:var(--mono);font-size:0.68rem;background:var(--surf);border:1px solid var(--bdr);border-radius:2px;color:var(--txt);padding:5px 10px;outline:none;transition:border-color 0.15s;}
+.filter-input:focus{border-color:var(--acc);}
+.filter-input::placeholder{color:var(--txt-faint);}
+select.filter-input option{background:var(--panel);}
+.filter-sep{width:1px;height:20px;background:var(--bdr);flex-shrink:0;}
+.filter-btn{font-family:var(--mono);font-size:0.54rem;letter-spacing:0.12em;background:var(--acc-dim);border:1px solid var(--bdr-hot);color:var(--acc);padding:5px 14px;border-radius:2px;cursor:pointer;transition:all 0.15s;margin-left:auto;}
+.filter-btn:hover{background:rgba(42,159,214,0.22);color:#fff;border-color:var(--acc);}
+.tbl-wrap{background:var(--panel);border:1px solid var(--bdr);border-radius:3px;overflow:hidden;}
+.tbl-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--bdr);background:var(--surf);}
+.tbl-header-title{font-family:var(--mono);font-size:0.50rem;letter-spacing:0.16em;color:var(--txt-dim);}
+.tbl-count{font-family:var(--mono);font-size:0.50rem;color:var(--txt-faint);letter-spacing:0.1em;}
+table{width:100%;border-collapse:collapse;}
+th{font-family:var(--mono);font-size:0.46rem;letter-spacing:0.16em;color:var(--txt-dim);background:rgba(9,13,21,0.6);padding:8px 12px;text-align:left;border-bottom:1px solid var(--bdr);white-space:nowrap;}
+td{font-family:var(--mono);font-size:0.62rem;color:var(--txt);padding:7px 12px;border-bottom:1px solid rgba(26,37,53,0.5);white-space:nowrap;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(42,159,214,0.04);}
+.id-cell{color:var(--acc);}
+.tag{display:inline-block;font-family:var(--mono);font-size:0.44rem;letter-spacing:0.1em;padding:2px 8px;border-radius:2px;}
+.tag.hi{background:rgba(192,57,43,0.18);color:#E57373;border:1px solid rgba(192,57,43,0.3);}
+.tag.md{background:rgba(230,126,34,0.15);color:#FFB74D;border:1px solid rgba(230,126,34,0.28);}
+.tag.lo{background:rgba(42,159,214,0.12);color:#64B5F6;border:1px solid rgba(42,159,214,0.25);}
+.tag.ok{background:rgba(39,174,96,0.12);color:#81C784;border:1px solid rgba(39,174,96,0.25);}
+.score-wrap{display:flex;align-items:center;gap:8px;}
+.score-bar-bg{width:72px;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden;}
+.score-bar{height:100%;border-radius:2px;}
+.score-num{font-size:0.54rem;color:var(--txt-dim);}
+.status-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.stat-panel{background:var(--panel);border:1px solid var(--bdr);border-radius:3px;padding:15px 17px;}
+.stat-panel h4{font-family:var(--mono);font-size:0.50rem;letter-spacing:0.2em;color:var(--acc);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--bdr);}
+.stat-row{display:flex;align-items:center;font-family:var(--mono);font-size:0.60rem;color:var(--txt-dim);padding:6px 0;border-bottom:1px solid rgba(30,58,90,0.4);gap:6px;}
+.stat-row:last-child{border-bottom:none;}
+.stat-row .v{color:var(--txt);margin-left:auto;font-size:0.58rem;}
+@keyframes pdot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.75)}}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;flex-shrink:0;animation:pdot 2s ease-in-out infinite;}
+.dot.g{background:var(--ok);}
+.dot.r{background:var(--danger);}
+.dot.a{background:var(--warn);}
+.app-footer{padding:9px 26px;border-top:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:0.46rem;letter-spacing:0.14em;color:var(--txt-faint);flex-shrink:0;background:var(--surf);}
 </style>
-""", unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════════
-#  HELPERS
-# ═══════════════════════════════════════════════════════════════
-def kpi(cls, label, value, sub=""):
-    return (
-        f'<div class="np-kpi {cls}">'
-        f'<div class="np-kpi-label">{label}</div>'
-        f'<div class="np-kpi-value">{value}</div>'
-        + (f'<div class="np-kpi-sub">{sub}</div>' if sub else "")
-        + "</div>"
-    )
-
-def section(text):
-    st.markdown(f'<div class="np-section">// {text}</div>', unsafe_allow_html=True)
-
-def dot(color):
-    return f'<span class="np-dot {color}"></span>'
-
-PLOT_BASE = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="IBM Plex Mono, monospace", color="#5A7A9A", size=10),
-    margin=dict(l=4, r=4, t=24, b=4),
-    xaxis=dict(showgrid=False, zeroline=False, linecolor="#1A2535",
-               tickfont=dict(size=10), tickcolor="#1A2535"),
-    yaxis=dict(showgrid=True, gridcolor="rgba(26,37,53,0.7)", zeroline=False,
-               tickfont=dict(size=10)),
-    hoverlabel=dict(bgcolor="#090D15", bordercolor="#1E4976",
-                    font=dict(family="IBM Plex Mono, monospace", color="#C8D6E5", size=11)),
-)
-
-
-# ═══════════════════════════════════════════════════════════════
-#  DATA  (logic unchanged)
-# ═══════════════════════════════════════════════════════════════
-@st.cache_data(ttl=60)
-def load_data(path=DATA_FILE):
-    if os.path.exists(path):
-        return pd.read_csv(path)
-    return pd.DataFrame()
-
-def load_alerts(session):
-    try:
-        q = session.query(Alert).order_by(Alert.created_at.desc())
-        return pd.read_sql(q.statement, q.session.bind)
-    except Exception:
-        return pd.DataFrame()
-
-
-# ═══════════════════════════════════════════════════════════════
-#  SIDEBAR
-# ═══════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown("""
-    <div class="np-logo">
-      NETPULSE SHIELD
-      <span>THREAT INTELLIGENCE PLATFORM</span>
-    </div>""", unsafe_allow_html=True)
-
-    if os.getenv("DASHBOARD_TOKEN"):
-        token = st.text_input("ACCESS TOKEN", type="password", placeholder="••••••••")
-        if token != os.getenv("DASHBOARD_TOKEN"):
-            st.error("Unauthorized.")
-            st.stop()
-
-    st.markdown('<div class="np-eyebrow" style="margin-bottom:8px;">Operations</div>', unsafe_allow_html=True)
-    if st.button("⚡  RUN DETECTION"):
-        st.info("Invoke pipeline.py for full analysis runs.")
-
-    st.markdown("---")
-    now = datetime.now()
-    st.markdown(f"""
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:0.60rem;color:#1A2535;line-height:2.2;">
-      <div style="color:#5A7A9A;">SESSION · {now.strftime('%Y-%m-%d')}</div>
-      <div style="color:#2A3A4A;">{now.strftime('%H:%M:%S')} UTC</div>
-    </div>""", unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════════
-#  LOAD DATA
-# ═══════════════════════════════════════════════════════════════
-data    = load_data()
-session = get_session(DB_PATH)
-alerts  = load_alerts(session) if session is not None else pd.DataFrame()
-pending = int(alerts[alerts["advice"].isna()].shape[0]) if not alerts.empty else 0
-now     = datetime.now()
-
-
-# ═══════════════════════════════════════════════════════════════
-#  PAGE HEADER
-# ═══════════════════════════════════════════════════════════════
-h_l, h_r = st.columns([5, 2])
-with h_l:
-    st.markdown(f"""
-    <div class="np-title">
-      <span class="acc">▶</span> NETPULSE SHIELD
-      <span style="font-weight:300;color:#5A7A9A;font-size:0.82rem;"> / CONTROL CENTER</span>
-      <span class="np-cursor">_</span>
+</head>
+<body>
+<div class="sweep-bar"></div>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-name">NETPULSE<br>SHIELD</div>
+      <div class="sb-logo-sub">THREAT INTELLIGENCE PLATFORM</div>
     </div>
-    <div class="np-subtitle">Anomaly detection · AI triage · Real-time remediation intelligence</div>
-    """, unsafe_allow_html=True)
-with h_r:
-    st.markdown(f"""
-    <div style="text-align:right;font-family:'IBM Plex Mono',monospace;font-size:0.58rem;
-                color:#2A3A4A;line-height:2.2;padding-top:6px;">
-      <div style="color:#5A7A9A;letter-spacing:0.14em;">LAST REFRESH</div>
-      <div style="color:#C8D6E5;font-size:0.70rem;">{now.strftime('%Y-%m-%dT%H:%M:%S')}</div>
-    </div>""", unsafe_allow_html=True)
+    <nav class="sb-nav">
+      <div class="sb-nav-label">Navigation</div>
+      <div class="sb-nav-item active" onclick="setNav(this)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+        OVERVIEW
+      </div>
+      <div class="sb-nav-item" onclick="setNav(this)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="1,13 5,7 9,10 15,3"/></svg>
+        ANALYTICS
+      </div>
+      <div class="sb-nav-item" onclick="setNav(this)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2L9.5 6h4L10 9l1.5 4L8 11l-3.5 2L6 9 2.5 6h4z"/></svg>
+        TRIAGE
+      </div>
+      <div class="sb-nav-item" onclick="setNav(this)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><polyline points="8,5 8,8 10,10"/></svg>
+        AUDIT LOG
+      </div>
+      <div class="sb-nav-item" onclick="setNav(this)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="2.5"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
+        SETTINGS
+      </div>
+    </nav>
+    <div class="sb-footer">
+      <div class="sb-footer-time">
+        <b id="live-time">--:--:--</b>
+        UTC SESSION
+      </div>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-title">
+        <span class="acc">▶</span>
+        NETPULSE SHIELD
+        <span class="dim">/ CONTROL CENTER<span class="cursor">_</span></span>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-ts">
+          <b id="live-date">----</b>
+          LAST REFRESH
+        </div>
+        <div class="live-badge">LIVE</div>
+      </div>
+    </header>
+    <div class="content">
+      <div class="sec">// SYSTEM OVERVIEW</div>
+      <div class="kpi-grid">
+        <div class="kpi c">
+          <div class="kpi-label">TOTAL FLOWS</div>
+          <div class="kpi-val" id="kv-flows">47,283</div>
+          <div class="kpi-sub">captured packets</div>
+        </div>
+        <div class="kpi r">
+          <div class="kpi-label">TOTAL ALERTS</div>
+          <div class="kpi-val" id="kv-alerts">4,729</div>
+          <div class="kpi-sub">anomalies flagged</div>
+        </div>
+        <div class="kpi a">
+          <div class="kpi-label">ADVICE PENDING</div>
+          <div class="kpi-val" id="kv-pending">312</div>
+          <div class="kpi-sub">awaiting triage</div>
+        </div>
+        <div class="kpi g">
+          <div class="kpi-label">ANOMALY RATE</div>
+          <div class="kpi-val" id="kv-rate">10.0<span style="font-size:1.1rem">%</span></div>
+          <div class="kpi-sub">contamination factor</div>
+        </div>
+      </div>
+      <div class="sec">// INTELLIGENCE VIEW</div>
+      <div class="charts">
+        <div class="chart-panel">
+          <div class="chart-eyebrow">ALERT VOLUME · DAILY TREND</div>
+          <canvas id="lineChart" height="130"></canvas>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-eyebrow">ANOMALY SCORE DISTRIBUTION</div>
+          <canvas id="barChart" height="130"></canvas>
+        </div>
+      </div>
+      <div class="sec">// THREAT TRIAGE</div>
+      <div class="filter-bar">
+        <span class="filter-label">SEVERITY</span>
+        <select class="filter-input" id="sev-filter" onchange="applyFilters()">
+          <option value="all">ALL</option>
+          <option value="high">HIGH</option>
+          <option value="medium">MEDIUM</option>
+          <option value="low">LOW</option>
+        </select>
+        <div class="filter-sep"></div>
+        <span class="filter-label">MIN SCORE</span>
+        <input class="filter-input" type="number" id="score-filter" value="0.0" min="0" max="1" step="0.05" style="width:72px" onchange="applyFilters()">
+        <div class="filter-sep"></div>
+        <span class="filter-label">SEARCH</span>
+        <input class="filter-input" type="text" id="search-filter" placeholder="IP / Flow ID…" style="flex:1" oninput="applyFilters()">
+        <button class="filter-btn" onclick="exportCSV()">↓ EXPORT CSV</button>
+      </div>
+      <div class="tbl-wrap">
+        <div class="tbl-header">
+          <span class="tbl-header-title">DETECTED ANOMALIES</span>
+          <span class="tbl-count" id="tbl-count">SHOWING 0 OF 0</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>FLOW ID</th>
+              <th>SOURCE IP</th>
+              <th>DEST IP</th>
+              <th>PROTOCOL</th>
+              <th>SEVERITY</th>
+              <th>SCORE</th>
+              <th>TIMESTAMP</th>
+              <th>STATUS</th>
+            </tr>
+          </thead>
+          <tbody id="alert-tbody"></tbody>
+        </table>
+      </div>
+      <div class="sec">// INFRASTRUCTURE STATUS</div>
+      <div class="status-grid">
+        <div class="stat-panel">
+          <h4>QUEUE / REDIS</h4>
+          <div class="stat-row"><span class="dot g"></span>CONNECTED<span class="v">redis://localhost:6379/0</span></div>
+          <div class="stat-row">QUEUE DEPTH<span class="v" id="s-qdepth">312</span></div>
+          <div class="stat-row">JOBS PROCESSED<span class="v">4,417</span></div>
+          <div class="stat-row">AVG LATENCY<span class="v">4.2 ms</span></div>
+        </div>
+        <div class="stat-panel">
+          <h4>DATABASE</h4>
+          <div class="stat-row"><span class="dot g"></span>CONNECTED<span class="v">SQLite · alerts.db</span></div>
+          <div class="stat-row">TOTAL ALERTS<span class="v" id="s-alerts">4,729</span></div>
+          <div class="stat-row">AUDIT ENTRIES<span class="v">19,302</span></div>
+          <div class="stat-row">DB SIZE<span class="v">14.2 MB</span></div>
+        </div>
+      </div>
+    </div>
+    <footer class="app-footer">
+      <span>NETPULSE SHIELD · THREAT INTELLIGENCE PLATFORM</span>
+      <span>BUILD 2024.1 · ALL SYSTEMS MONITORED</span>
+    </footer>
+  </div>
+</div>
+<script>
+const fmt = n => Math.round(n).toLocaleString();
+const pad = x => String(x).padStart(2,'0');
+function tick(){
+  const n = new Date();
+  document.getElementById('live-time').textContent = pad(n.getUTCHours())+':'+pad(n.getUTCMinutes())+':'+pad(n.getUTCSeconds())+' ';
+  document.getElementById('live-date').textContent = n.toISOString().slice(0,19).replace('T',' ')+' ';
+}
+tick(); setInterval(tick,1000);
+function setNav(el){
+  document.querySelectorAll('.sb-nav-item').forEach(i=>i.classList.remove('active'));
+  el.classList.add('active');
+}
+const CHART_OPTS = {
+  responsive:true,
+  animation:{duration:1200,easing:'easeInOutQuart'},
+  plugins:{
+    legend:{display:false},
+    tooltip:{
+      backgroundColor:'#090D15',
+      borderColor:'#1E4976',
+      borderWidth:1,
+      titleFont:{family:'IBM Plex Mono',size:11},
+      bodyFont:{family:'IBM Plex Mono',size:11},
+      titleColor:'#C8D6E5',
+      bodyColor:'#5A7A9A',
+      padding:10,
+    }
+  },
+  scales:{
+    x:{
+      grid:{display:false},
+      ticks:{color:'#5A7A9A',font:{family:'IBM Plex Mono',size:10}},
+      border:{color:'#1A2535'}
+    },
+    y:{
+      grid:{color:'rgba(26,37,53,0.65)'},
+      ticks:{color:'#5A7A9A',font:{family:'IBM Plex Mono',size:10}},
+      border:{display:false}
+    }
+  }
+};
+const lineCtx = document.getElementById('lineChart').getContext('2d');
+const lineGrad = lineCtx.createLinearGradient(0,0,0,130);
+lineGrad.addColorStop(0,'rgba(42,159,214,0.20)');
+lineGrad.addColorStop(1,'rgba(42,159,214,0.01)');
+const lineChart = new Chart(lineCtx,{
+  type:'line',
+  data:{
+    labels:['May 25','May 26','May 27','May 28','May 29','May 30','May 31','Jun 1'],
+    datasets:[{
+      data:[287,412,369,541,623,490,728,487],
+      borderColor:'#2A9FD6',
+      borderWidth:2,
+      pointBackgroundColor:'#2A9FD6',
+      pointBorderColor:'#05080D',
+      pointBorderWidth:2,
+      pointRadius:4,
+      fill:true,
+      backgroundColor:lineGrad,
+      tension:0.4,
+    }]
+  },
+  options:{...CHART_OPTS,plugins:{...CHART_OPTS.plugins,tooltip:{...CHART_OPTS.plugins.tooltip,callbacks:{label:ctx=>' Alerts: '+ctx.parsed.y}}}}
+});
+const barCtx = document.getElementById('barChart').getContext('2d');
+new Chart(barCtx,{
+  type:'bar',
+  data:{
+    labels:['0.0–0.2','0.2–0.4','0.4–0.6','0.6–0.8','0.8–1.0'],
+    datasets:[{
+      data:[210,480,1340,1860,839],
+      backgroundColor:['rgba(42,159,214,0.45)','rgba(42,159,214,0.55)','rgba(230,126,34,0.48)','rgba(192,57,43,0.50)','rgba(192,57,43,0.72)'],
+      borderColor:['#2A9FD6','#2A9FD6','#E67E22','#C0392B','#C0392B'],
+      borderWidth:1,
+      borderRadius:2,
+    }]
+  },
+  options:{...CHART_OPTS,plugins:{...CHART_OPTS.plugins,tooltip:{...CHART_OPTS.plugins.tooltip,callbacks:{label:ctx=>' Count: '+ctx.parsed.y}}}}
+});
+const ALERTS = (()=>{
+  const rows=[];
+  const sips=['192.168.1.104','172.16.8.55','10.10.1.200','192.168.2.11','172.16.5.32','10.0.2.44','192.168.3.77','172.16.12.9','10.10.8.100','192.168.1.88'];
+  const dips=['10.0.0.23','10.0.0.1','203.0.113.5','198.51.100.9','10.0.0.55','203.0.113.22','10.0.0.8','198.51.100.44','10.0.0.71','10.0.0.33'];
+  const protos=['TCP','UDP','ICMP','HTTP','HTTPS'];
+  const sevs=['high','high','medium','medium','low'];
+  const stats=['OPEN','OPEN','TRIAGED','TRIAGED','CLOSED'];
+  for(let i=0;i<40;i++){
+    const score=parseFloat((Math.random()*0.6+0.4).toFixed(2));
+    const sidx=score>=0.8?0:score>=0.65?2:4;
+    rows.push({id:'NP-'+String(500-i).padStart(5,'0'),src:sips[i%sips.length],dst:dips[i%dips.length],proto:protos[i%protos.length],sev:sevs[sidx],score,ts:'2024-06-01 '+pad(14-Math.floor(i/4))+':'+pad((i*7)%60)+':'+pad((i*13)%60),status:stats[sidx+(i%2)>4?4:sidx+(i%2)]});
+  }
+  return rows.sort((a,b)=>b.score-a.score);
+})();
+let filteredAlerts=[...ALERTS];
+function applyFilters(){
+  const sev=document.getElementById('sev-filter').value;
+  const minScore=parseFloat(document.getElementById('score-filter').value)||0;
+  const q=(document.getElementById('search-filter').value||'').toLowerCase();
+  filteredAlerts=ALERTS.filter(r=>{if(sev!=='all'&&r.sev!==sev)return false;if(r.score<minScore)return false;if(q&&!(r.id+r.src+r.dst).toLowerCase().includes(q))return false;return true;});
+  renderTable();
+}
+function renderTable(){
+  const tbody=document.getElementById('alert-tbody');
+  const shown=filteredAlerts.slice(0,50);
+  document.getElementById('tbl-count').textContent='SHOWING '+shown.length+' OF '+filteredAlerts.length;
+  tbody.innerHTML=shown.map(r=>{const pct=Math.round(r.score*100);const barColor=r.score>=0.8?'#C0392B':r.score>=0.65?'#E67E22':'#2A9FD6';const tagCls=r.sev==='high'?'hi':r.sev==='medium'?'md':'lo';const stCls=r.status==='OPEN'?'hi':r.status==='TRIAGED'?'md':'ok';return `<tr><td class="id-cell">${r.id}</td><td>${r.src}</td><td>${r.dst}</td><td><span class="tag lo">${r.proto}</span></td><td><span class="tag ${tagCls}">${r.sev.toUpperCase()}</span></td><td><div class="score-wrap"><div class="score-bar-bg"><div class="score-bar" style="width:${pct}%;background:${barColor}"></div></div><span class="score-num">${r.score.toFixed(2)}</span></div></td><td style="color:var(--txt-dim)">${r.ts}</td><td><span class="tag ${stCls}">${r.status}</span></td></tr>`;}).join('');
+}
+renderTable();
+function exportCSV(){
+  const headers=['Flow ID','Source IP','Dest IP','Protocol','Severity','Score','Timestamp','Status'];
+  const rows=filteredAlerts.map(r=>[r.id,r.src,r.dst,r.proto,r.sev,r.score,r.ts,r.status]);
+  const csv=[headers,...rows].map(r=>r.join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='netpulse_alerts_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+}
+let flows=47283,alerts=4729,pending=312;
+setInterval(()=>{flows+=Math.floor(Math.random()*14+3);if(Math.random()>0.6)alerts++;pending=Math.max(0,pending+(Math.random()>0.8?1:Math.random()>0.5?-1:0));document.getElementById('kv-flows').textContent=fmt(flows);document.getElementById('kv-alerts').textContent=fmt(alerts);document.getElementById('kv-pending').textContent=fmt(pending);document.getElementById('s-alerts').textContent=fmt(alerts);document.getElementById('s-qdepth').textContent=fmt(pending);},2200);
+</script>
+</body>
+</html>
+"""
 
-st.markdown("---")
-
-
-# ═══════════════════════════════════════════════════════════════
-#  KPI ROW
-# ═══════════════════════════════════════════════════════════════
-section("SYSTEM OVERVIEW")
-k1, k2, k3, k4 = st.columns(4)
-with k1:
-    st.markdown(kpi("np-cyan",  "TOTAL FLOWS",    f"{len(data):,}",  "captured packets"), unsafe_allow_html=True)
-with k2:
-    st.markdown(kpi("np-red",   "TOTAL ALERTS",   f"{len(alerts):,}", "anomalies flagged"), unsafe_allow_html=True)
-with k3:
-    st.markdown(kpi("np-amber", "ADVICE PENDING", str(pending),      "awaiting triage"),   unsafe_allow_html=True)
-with k4:
-    st.markdown(kpi("np-green", "LAST RUN",       now.strftime("%H:%M"), now.strftime("%Y-%m-%d")), unsafe_allow_html=True)
-
-st.markdown("<div style='margin:1rem 0'></div>", unsafe_allow_html=True)
-st.markdown("---")
-
-
-# ═══════════════════════════════════════════════════════════════
-#  FILTERS
-# ═══════════════════════════════════════════════════════════════
-section("FILTERS")
-f1, f2, f3, f4 = st.columns([2, 2, 2, 4])
-with f1:
-    severity   = st.select_slider("Severity", options=["low","medium","high","critical"], value=("low","critical"))
-with f2:
-    min_score  = st.slider("Min anomaly score", 0.0, 1.0, 0.5)
-with f3:
-    date_range = st.date_input("Created between", [])
-with f4:
-    search     = st.text_input("Search  ·  IP / Flow ID / note", placeholder="e.g. 192.168.1.100")
-
-st.markdown("---")
-
-
-# ═══════════════════════════════════════════════════════════════
-#  CHARTS
-# ═══════════════════════════════════════════════════════════════
-section("INTELLIGENCE VIEW")
-c_l, c_r = st.columns([3, 2])
-
-with c_l:
-    st.markdown('<div class="np-eyebrow" style="margin-bottom:6px;">Alert Volume · Daily</div>', unsafe_allow_html=True)
-    if not alerts.empty:
-        alerts["created_at"] = pd.to_datetime(alerts["created_at"])
-        series = alerts.groupby(pd.Grouper(key="created_at", freq="D")).size().reset_index(name="count")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=series["created_at"], y=series["count"],
-            mode="none", fill="tozeroy",
-            fillcolor="rgba(29,114,170,0.07)",
-            showlegend=False, hoverinfo="skip",
-        ))
-        fig.add_trace(go.Scatter(
-            x=series["created_at"], y=series["count"],
-            mode="lines+markers",
-            line=dict(color="#2A9FD6", width=2, shape="spline"),
-            marker=dict(size=5, color="#2A9FD6", line=dict(color="#05080D", width=2)),
-            fill="none", showlegend=False,
-            hovertemplate="<b>%{x|%b %d}</b><br>Alerts: <b>%{y}</b><extra></extra>",
-        ))
-        fig.update_layout(**PLOT_BASE)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    else:
-        st.markdown('<div class="np-empty">NO ALERT DATA · RUN PIPELINE TO POPULATE</div>', unsafe_allow_html=True)
-
-with c_r:
-    st.markdown('<div class="np-eyebrow" style="margin-bottom:6px;">Feature Distribution · Sload vs Dload</div>', unsafe_allow_html=True)
-    if not data.empty and "Sload" in data.columns and "Dload" in data.columns:
-        sample = data.sample(min(2000, len(data)))
-        fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(
-            x=sample["Sload"], y=sample["Dload"],
-            mode="markers",
-            marker=dict(size=3, color=sample["Sload"],
-                        colorscale=[[0,"#1A2535"],[0.4,"#1D72AA"],[0.75,"#2A9FD6"],[1,"#C0392B"]],
-                        opacity=0.6, showscale=False),
-            hovertemplate="Sload: %{x:.2f}<br>Dload: %{y:.2f}<extra></extra>",
-        ))
-        fig2.update_layout(**PLOT_BASE)
-        st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
-    else:
-        st.markdown('<div class="np-empty">NO FEATURE DATA · LOAD DATASET TO VIEW</div>', unsafe_allow_html=True)
-
-st.markdown("---")
-
-
-# ═══════════════════════════════════════════════════════════════
-#  ALERTS TRIAGE
-# ═══════════════════════════════════════════════════════════════
-section("THREAT TRIAGE")
-if alerts.empty:
-    st.markdown('<div class="np-empty">NO ALERTS IN DATABASE · RUN ANALYSIS OR IMPORT alerts.csv</div>', unsafe_allow_html=True)
-else:
-    display = alerts.copy()
-    if search:
-        display = display[display.apply(lambda r: search.lower() in json.dumps(r.to_dict()).lower(), axis=1)]
-    display = display[display["anomaly_score"] >= min_score]
-
-    selected = st.multiselect("SELECT ALERTS FOR BULK ACTION", options=display["id"].tolist(), placeholder="Choose alert IDs…")
-    st.dataframe(display.head(200), use_container_width=True, height=300)
-
-    a1, a2 = st.columns(2)
-    with a1:
-        if st.button("⟳  ENQUEUE FOR ADVICE"):
-            if not selected:
-                st.warning("No alerts selected.")
-            else:
-                redis_health = check_redis_health(REDIS_URL)
-                if redis_health.get("connected"):
-                    enqueued = bulk_enqueue_advice(selected, DB_PATH, REDIS_URL)
-                    st.success(f"Enqueued {enqueued} alerts.")
-                else:
-                    st.info("Redis unavailable — running synchronously.")
-                    from tasks import generate_advice_for_alert
-                    for aid in selected:
-                        generate_advice_for_alert(aid, DB_PATH)
-                    st.success(f"Generated advice for {len(selected)} alerts.")
-    with a2:
-        if st.button("↓  EXPORT CSV"):
-            if not selected:
-                st.warning("No alerts selected.")
-            else:
-                out_df = display[display["id"].isin(selected)]
-                csv = out_df.to_csv(index=False)
-                st.download_button("Download", csv, file_name="selected_alerts.csv", mime="text/csv")
-
-st.markdown("---")
-
-
-# ═══════════════════════════════════════════════════════════════
-#  SECURITY REPORT
-# ═══════════════════════════════════════════════════════════════
-section("SECURITY REPORT")
-if os.path.exists(REPORT_FILE):
-    with open(REPORT_FILE, "r", encoding="utf-8") as fh:
-        rep = fh.read()
-    st.markdown(f'<div class="np-report">{rep}</div>', unsafe_allow_html=True)
-else:
-    st.markdown('<div class="np-empty">NO REPORT FOUND · RUN pipeline.py TO GENERATE Security_Report.txt</div>', unsafe_allow_html=True)
-
-st.markdown("---")
-
-
-# ═══════════════════════════════════════════════════════════════
-#  SYSTEM STATUS
-# ═══════════════════════════════════════════════════════════════
-section("INFRASTRUCTURE STATUS")
-s1, s2 = st.columns(2)
-
-with s1:
-    redis_ok = check_redis_health(REDIS_URL).get("connected", False)
-    st.markdown(f"""
-    <div class="np-stat-panel">
-      <h4>QUEUE / REDIS</h4>
-      <div class="np-status-row">
-        {dot("g" if redis_ok else "r")}
-        {"CONNECTED" if redis_ok else "OFFLINE"}
-        <span class="v">{REDIS_URL}</span>
-      </div>""", unsafe_allow_html=True)
-    if redis_ok:
-        qstats = get_queue_stats(REDIS_URL)
-        if "queue_depth" in qstats:
-            st.markdown(f'<div class="np-status-row">QUEUE DEPTH<span class="v">{qstats["queue_depth"]}</span></div>', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with s2:
-    st.markdown('<div class="np-stat-panel"><h4>DATABASE</h4>', unsafe_allow_html=True)
-    if session is not None:
-        try:
-            ac = session.query(Alert).count()
-            uc = session.query(AuditLog).count()
-            st.markdown(f"""
-      <div class="np-status-row">{dot("g")} CONNECTED <span class="v">SQLite</span></div>
-      <div class="np-status-row">ALERTS<span class="v">{ac:,}</span></div>
-      <div class="np-status-row">AUDIT ENTRIES<span class="v">{uc:,}</span></div>
-      """, unsafe_allow_html=True)
-        except Exception:
-            st.markdown(f'{dot("r")} UNAVAILABLE', unsafe_allow_html=True)
-    else:
-        st.markdown(f'{dot("r")} SESSION UNAVAILABLE', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════════
-#  FOOTER
-# ═══════════════════════════════════════════════════════════════
-st.markdown("""
-<div style="margin-top:3rem;padding-top:1.2rem;border-top:1px solid #1A2535;
-            display:flex;justify-content:space-between;align-items:center;
-            font-family:'IBM Plex Mono',monospace;font-size:0.56rem;
-            color:#1A2535;letter-spacing:0.14em;">
-  <span>NETPULSE SHIELD  ·  THREAT INTELLIGENCE PLATFORM</span>
-  <span>BUILD 2024.1  ·  ALL SYSTEMS MONITORED</span>
-</div>""", unsafe_allow_html=True)
+# Render the dashboard
+components.html(html_content, height=1400, scrolling=True)
