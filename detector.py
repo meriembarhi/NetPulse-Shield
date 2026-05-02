@@ -4,13 +4,23 @@ Version : Expertise RST & Évaluation de Performance
 """
 import os
 import joblib
+import json
+import logging
 import numpy as np
 import pandas as pd
+from datetime import datetime
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 # ✅ Single line — Ruff is happy
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score, precision_score, recall_score
+
+# Configure logging for production-grade monitoring
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 class NetworkAnomalyDetector:
@@ -29,34 +39,93 @@ class NetworkAnomalyDetector:
 
         os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
         self.feature_columns = None
-
+        self.features_path = model_path.replace(".joblib", "_features.joblib")
+        self.metadata_path = model_path.replace(".joblib", "_metadata.json")
+        self.model_metadata = {}
+        
+        # Try to load existing model with backward compatibility and graceful fallback
         if os.path.exists(self.model_path) and os.path.exists(self.scaler_path):
-            self.model = joblib.load(self.model_path)
-            self.scaler = joblib.load(self.scaler_path)
-            print(f"✅ Modèle et Scaler chargés depuis {self.model_path}")
+            try:
+                self.model = joblib.load(self.model_path)
+                self.scaler = joblib.load(self.scaler_path)
+                
+                # Load feature columns (new approach)
+                if os.path.exists(self.features_path):
+                    self.feature_columns = joblib.load(self.features_path)
+                    logger.info(f"Loaded feature columns from {self.features_path}")
+                else:
+                    logger.warning(
+                        f"Feature columns file not found at {self.features_path}. "
+                        "Will recalculate on next training. This is normal for legacy models."
+                    )
+                
+                # Load metadata if available
+                if os.path.exists(self.metadata_path):
+                    with open(self.metadata_path, 'r') as f:
+                        self.model_metadata = json.load(f)
+                    logger.info(
+                        f"Model loaded from {self.model_metadata.get('created_at', 'unknown date')} "
+                        f"with {len(self.feature_columns or [])} features"
+                    )
+                else:
+                    logger.warning(
+                        f"Metadata file not found at {self.metadata_path}. "
+                        "This is normal for legacy models (created before version 2.0)."
+                    )
+                
+                logger.info(f"✅ Model and Scaler loaded successfully from {self.model_path}")
+            except Exception as e:
+                logger.error(f"Failed to load model: {e}. Initializing fresh detector.")
+                self.model = None
+                self.scaler = StandardScaler()
         else:
             self.model = None
             self.scaler = StandardScaler()
-            print("🆕 Nouveau détecteur initialisé (en attente d'entraînement).")
+            logger.info("🔆 New detector initialized (awaiting training).")
 
     # ------------------------------------------------------------------
     # Preprocessing
     # ------------------------------------------------------------------
 
     def preprocess(self, df: pd.DataFrame, training: bool = False) -> np.ndarray:
+        """Preprocess input data with schema validation and defensive checks."""
         if df is None or len(df) == 0:
             raise ValueError("Input dataframe is empty or None.")
         
         cols_to_exclude = ['Label', 'label', 'anomaly', 'is_anomaly', 'anomaly_score']
-        self.feature_columns = [
-            c for c in df.select_dtypes(include=[np.number]).columns
-            if c not in cols_to_exclude
-        ]
+        
+        # During training: discover features; during prediction: use saved features
+        if training or self.feature_columns is None:
+            self.feature_columns = [
+                c for c in df.select_dtypes(include=[np.number]).columns
+                if c not in cols_to_exclude
+            ]
+            if training:
+                logger.info(f"Training: discovered {len(self.feature_columns)} numeric features")
         
         if not self.feature_columns:
             raise ValueError(
                 f"No numeric features found. Available columns: {df.columns.tolist()}. "
                 "Expected at least one numeric column for training."
+            )
+
+        # Schema validation: check for missing columns and extra columns
+        missing_cols = [c for c in self.feature_columns if c not in df.columns]
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        extra_cols = [c for c in numeric_cols if c not in self.feature_columns and c not in cols_to_exclude]
+        
+        if missing_cols:
+            error_msg = (
+                f"Schema mismatch: Missing {len(missing_cols)} required columns: {missing_cols}. "
+                f"Expected: {self.feature_columns}. Available: {df.columns.tolist()}"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if extra_cols and not training:
+            logger.warning(
+                f"Schema drift detected: Input has {len(extra_cols)} extra numeric columns "
+                f"not seen during training: {extra_cols}. These will be ignored."
             )
 
         features = df[self.feature_columns].copy()
@@ -79,11 +148,11 @@ class NetworkAnomalyDetector:
             # Use the true attack rate from the labels
             attack_rate = (y_true != 0).sum() / len(y_true)
             self.contamination = float(np.clip(attack_rate, 0.01, 0.5))
-            print(f"📊 Contamination réelle détectée : {self.contamination:.4f} "
+            logger.info(f"📊 Detected real contamination: {self.contamination:.4f} "
                   f"({self.contamination * 100:.2f}% of data)")
         elif self.contamination == 'auto':
             self.contamination = 0.05
-            print(f"⚠️  No labels found — using default contamination: {self.contamination}")
+            logger.warning(f"No labels found — using default contamination: {self.contamination}")
 
         self.model = IsolationForest(
             contamination=self.contamination,
@@ -92,12 +161,30 @@ class NetworkAnomalyDetector:
             n_jobs=-1,
         )
 
-        print("🧠 Entraînement de l'Isolation Forest...")
+        logger.info("🧠 Training Isolation Forest...")
         self.model.fit(X)
 
+        # Save model artifacts
         joblib.dump(self.model, self.model_path)
         joblib.dump(self.scaler, self.scaler_path)
-        print("💾 Modèle et Scaler sauvegardés.")
+        joblib.dump(self.feature_columns, self.features_path)
+        
+        # Save metadata for versioning and audit trail
+        self.model_metadata = {
+            "created_at": datetime.now().isoformat(),
+            "contamination": float(self.contamination),
+            "n_estimators": self.n_estimators,
+            "feature_columns": self.feature_columns,
+            "n_features": len(self.feature_columns),
+            "model_version": "2.0",
+        }
+        with open(self.metadata_path, 'w') as f:
+            json.dump(self.model_metadata, f, indent=2)
+        
+        logger.info(
+            f"💾 Model, Scaler, Features, and Metadata saved. "
+            f"({len(self.feature_columns)} features, contamination={self.contamination})"
+        )
 
     # ------------------------------------------------------------------
     # Evaluation (Fix #1 — labeled data)
@@ -187,10 +274,11 @@ class NetworkAnomalyDetector:
         )
 
         X_train = self.preprocess(train_df, training=True)
-        X_val   = self.scaler.transform(
-            val_df[self.feature_columns].replace([np.inf, -np.inf], np.nan).fillna(0)
-        )
-        y_val   = (val_df[label_column] != 0).astype(int)
+        val_features = val_df[self.feature_columns].copy()
+        val_features.replace([np.inf, -np.inf], np.nan, inplace=True)
+        val_features.fillna(0, inplace=True)
+        X_val = self.scaler.transform(val_features)
+        y_val = (val_df[label_column] != 0).astype(int)
 
         best_f1, best_c = -1.0, candidates[0]
 
@@ -235,11 +323,10 @@ class NetworkAnomalyDetector:
         X_train = self.preprocess(train_df, training=True)
         self.train(X_train)
 
-        X_test = self.scaler.transform(
-            test_df[self.feature_columns]
-            .replace([np.inf, -np.inf], np.nan)
-            .fillna(0)
-        )
+        test_features = test_df[self.feature_columns].copy()
+        test_features.replace([np.inf, -np.inf], np.nan, inplace=True)
+        test_features.fillna(0, inplace=True)
+        X_test = self.scaler.transform(test_features)
         _, scores = self.model.predict(X_test), self.model.decision_function(X_test)
 
         flagged_pct = (scores < 0).mean() * 100
@@ -260,16 +347,37 @@ class NetworkAnomalyDetector:
     # ------------------------------------------------------------------
 
     def analyze(self, df: pd.DataFrame, force_train: bool = False) -> pd.DataFrame:
+        """Analyze dataframe for anomalies with defensive validation and logging."""
         if df is None or len(df) == 0:
             raise ValueError("Input dataframe is empty or None. Cannot analyze.")
         
         is_trained = self.model is not None and hasattr(self.model, "estimators_")
         y_true = df['Label'] if 'Label' in df.columns else None
 
+        # Schema validation before preprocessing
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        cols_to_exclude = ['Label', 'label', 'anomaly', 'is_anomaly', 'anomaly_score']
+        available_features = [c for c in numeric_cols if c not in cols_to_exclude]
+        
+        if not available_features:
+            error_msg = (
+                f"No numeric features available for analysis. "
+                f"Columns: {df.columns.tolist()}. "
+                f"Please provide numeric data columns."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        logger.info(f"Analyzing {len(df)} rows with {len(available_features)} numeric features")
+
         X = self.preprocess(df, training=(not is_trained or force_train))
 
         if not is_trained or force_train:
+            logger.info("Model not trained or force_train=True. Training now...")
             self.train(X, y_true)
+            logger.info("Training complete.")
+        else:
+            logger.info(f"Using existing model (trained on {len(self.feature_columns)} features)")
 
         predictions = self.model.predict(X)
         scores = self.model.decision_function(X)
@@ -278,6 +386,9 @@ class NetworkAnomalyDetector:
         results["anomaly"]      = predictions
         results["anomaly_score"] = scores
         results["is_anomaly"]   = results["anomaly"] == -1
+        
+        n_anomalies = results["is_anomaly"].sum()
+        logger.info(f"Detection complete: {n_anomalies} anomalies found ({100*n_anomalies/len(results):.2f}%)")
 
         if y_true is not None:
             self.evaluate(X, y_true)
@@ -290,9 +401,11 @@ class NetworkAnomalyDetector:
                 alerts_df = results[results["is_anomaly"]].copy()
                 if len(alerts_df) > 0:
                     inserted = persist_alerts_from_df(alerts_df, db_path=self.db_path)
-                    print(f"💾 Persisted {inserted} alerts to DB: {self.db_path}")
+                    logger.info(f"💾 Persisted {inserted} alerts to DB: {self.db_path}")
+                else:
+                    logger.info("No anomalies to persist.")
             except Exception as e:
-                print(f"⚠️  Warning: Failed to persist alerts to DB: {e}")
+                logger.warning(f"Failed to persist alerts to DB: {e}")
 
         return results
 

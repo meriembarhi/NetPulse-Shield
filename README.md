@@ -204,13 +204,19 @@ python detector.py
 ```
 Key Technical Features:
 
-Dynamic Contamination Calibration: The script automatically calculates the optimal contamination parameter by analyzing the distribution of labels in your dataset, ensuring higher detection accuracy.  
+**Dynamic Contamination Calibration:** The script automatically calculates the optimal contamination parameter by analyzing the distribution of labels in your dataset, ensuring higher detection accuracy.
 
-Expert Feature Engineering: Specifically filters and scales network-specific features like Sload (Source Load) and Dload (Destination Load) while handling infinite values (inf) and missing data (NaN) to prevent model crashes.  
+**Expert Feature Engineering:** Specifically filters and scales network-specific features like Sload (Source Load) and Dload (Destination Load) while handling infinite values (inf) and missing data (NaN) to prevent model crashes.
 
-Model Persistence: Both the trained Isolation Forest and the StandardScaler are serialized using joblib. This allows the system to reload the specific network "signature" instantly without retraining.  
+**Model Persistence with Versioning:** Both the trained Isolation Forest and the StandardScaler are serialized using joblib. Feature columns are also saved to ensure consistent feature matching between training and prediction. A JSON metadata file tracks model version, creation timestamp, contamination parameter, and feature schema for audit trails and debugging.
 
-Performance Benchmarking: Generates a detailed Classification Report (Precision, Recall, and F1-Score) to validate the model's effectiveness against known attack labels.
+**Graceful Model Fallback:** Legacy models without metadata files are automatically detected and gracefully handled. The system will recalculate features on next training if needed, preventing runtime failures.
+
+**Schema Validation:** Input data is validated against expected feature columns before prediction. The system detects schema drift (missing or extra columns) and provides informative error messages to aid debugging.
+
+**Structured Logging:** All model operations log to Python's standard logging module with timestamps and severity levels (INFO, WARNING, ERROR). This enables production monitoring, audit trails, and easier troubleshooting compared to raw print statements.
+
+**Performance Benchmarking:** Generates a detailed Classification Report (Precision, Recall, and F1-Score) to validate the model's effectiveness against known attack labels.
 
 **Example output:**
 
