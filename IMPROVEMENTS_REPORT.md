@@ -398,6 +398,39 @@ The project is now suitable for internal testing and demonstration. For producti
 
 ---
 
+## 8. Persistent Alerts Store & Dashboard Triage (New)
+
+**What I added**
+- `db.py`: a lightweight SQLite-backed persistence layer using SQLAlchemy. It defines two tables: `alerts` (id, created_at, anomaly_score, is_anomaly, severity, status, feature_json, advice) and `audit_logs` (for recording UI actions).
+- `detector.py`: optional DB persistence (`persist_to_db` and `db_path` params). When enabled, `analyze()` now writes anomalous rows to the DB.
+- `dashboard.py`: now uses the DB as the single source of truth for alerts, writes `alerts.csv` for backward compatibility, provides triage controls (status updates), and a working "Generate AI Advice" button that stores advisor output in the DB and logs the action.
+- `requirements.txt`: added `streamlit`, `plotly`, and `SQLAlchemy` required for the UI and DB.
+
+**Why this matters (simple language)**
+- Before: alerts were temporary CSV rows. No history, no status, no place to track what humans did.
+- Now: alerts are stored in a small database. The dashboard can mark alerts as "investigating" or "resolved", call the AI advisor to get advice, and save that advice next to the alert. Every change is logged in an audit table so you can see who did what.
+
+**How it works (step-by-step, simple)**
+1. `detector.analyze()` runs and finds anomalies.
+2. If the detector is configured to persist, it writes anomaly rows into the `alerts` table in `alerts.db`.
+3. The dashboard reads the `alerts` table to show the latest alerts.
+4. Analysts use triage controls in the dashboard to update `status` (e.g., 'investigating', 'resolved', 'false_positive'). Each change creates an `audit_logs` record.
+5. When "Generate AI Advice" is clicked, the dashboard finds alerts without stored advice, calls `NetworkSecurityAdvisor.get_remediation_advice()`, stores the returned advice in the alert record, and logs the action.
+
+**Developer notes (where to look in the code)**
+- DB helpers: `db.py` (create_db, get_session, persist_alerts_from_df)
+- Detector persistence: `detector.py` (keyword args `persist_to_db`, `db_path`) — tests disable persistence by default.
+- Dashboard triage & advice: `dashboard.py` (uses SQLAlchemy session, shows expanders for each alert, provides status/update buttons)
+
+**Safety and tests**
+- Unit tests were updated to avoid writing to the DB (the detector is constructed with `persist_to_db=False` in tests). The integration test demonstrates the full flow in a temp directory.
+
+**Next recommendations**
+- Add a simple UI audit viewer page to show `audit_logs` and export CSVs for compliance.
+- Add role-based authentication around triage actions (even simple token-based or Streamlit sharing).
+- Add background worker for heavy advisor calls to keep UI responsive.
+
+
 ## Files Modified
 
 | File | Lines Changed | Type | Impact |
