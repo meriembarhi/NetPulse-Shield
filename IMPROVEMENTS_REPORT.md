@@ -476,6 +476,40 @@ The project is now suitable for internal testing and demonstration. For producti
 - Add role-based authentication around triage actions (even simple token-based or Streamlit sharing).
 - Add background worker for heavy advisor calls to keep UI responsive.
 
+### 13. Comprehensive Dashboard Integration — Full Self-Service UI (Implemented)
+
+**What I added**
+- `system_utils.py`: utility module with functions to check Redis health, fetch job status from RQ, get queue statistics, bulk-enqueue alerts, and provide helper commands.
+- `dashboard.py`: enhanced with three new pages:
+  - **System Status**: shows Redis connection health, queue depth, job counts (started/finished/failed), and database metrics (total alerts, advice pending vs. done).
+  - **Control Panel**: bulk operations (enqueue all pending advice with one button), data export (download alerts and audit logs as CSV), and worker start commands.
+  - **Enhanced Detected Alerts**: each alert now shows its background job status (queued/started/finished/failed) and job ID inline, so analysts see real-time progress without leaving the dashboard.
+
+**Why this matters**
+- Before: you had to switch between the dashboard and terminal to run `rq worker advisor` or check job queues. Missing Redis required debugging outside the UI.
+- Now: everything is self-contained in the dashboard. Analysts can see Redis health, enqueue advice for all alerts at once, watch job progress per-alert, export data — all without a terminal after startup.
+
+**How it works**
+- `system_utils.check_redis_health()`: pings Redis and returns connected/error status.
+- `system_utils.get_job_status(job_id)`: looks up a job ID in RQ and returns status (queued/started/finished/failed).
+- `system_utils.get_queue_stats()`: counts jobs in different registries.
+- `system_utils.bulk_enqueue_advice(alert_ids, db_path, redis_url)`: enqueues multiple alerts, updates their `advice_job_id` and `advice_status` in the DB.
+- System Status page: displays Redis and database metrics; suggests Docker command if Redis is missing.
+- Enhanced Detected Alerts: shows job status per alert in the expander header.
+- Control Panel: provides bulk enqueue button and export buttons for alerts and audit logs.
+
+**User flow (no terminal after startup)**
+1. `streamlit run dashboard.py`
+2. (Optional) System Status page suggests Docker command if Redis missing.
+3. Press "Run Network Analysis" → alerts populate DB.
+4. Go to Control Panel → press "Enqueue All Pending Advice".
+5. Check System Status → watch queue depth and job progress in real-time.
+6. View each alert in "Detected Alerts" → see its job status inline.
+7. Export data in Control Panel → download alerts/audit logs as CSV.
+
+**Files changed:** `dashboard.py` (added 100+ lines), `system_utils.py` (new, 100 lines).  
+**Validation:** Ruff and pytest pass; no test changes required.
+
 
 ## Files Modified
 

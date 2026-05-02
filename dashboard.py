@@ -4,6 +4,7 @@ import streamlit as st
 import plotly.express as px
 from detector import NetworkAnomalyDetector
 from db import get_session, create_db, Alert, AuditLog
+from system_utils import check_redis_health, get_queue_stats, get_job_status, bulk_enqueue_advice
 
 # =========================
 # Page Configuration
@@ -123,7 +124,7 @@ if st.sidebar.button("🤖 2. Generate AI Advice"):
                         st.sidebar.error(f"Erreur génération conseils: {e}")
 
 st.sidebar.markdown("---")
-page = st.sidebar.radio("Navigation", ["Overview", "EDA & Insights", "Detected Alerts", "Security Report", "Audit Logs"])
+page = st.sidebar.radio("Navigation", ["Overview", "EDA & Insights", "Detected Alerts", "Security Report", "Audit Logs", "System Status", "Control Panel"])
 
 # Load Data
 data = load_csv(DATA_FILE)
@@ -190,12 +191,24 @@ elif page == "Detected Alerts":
     st.header("🚨 Menaces Identifiées (Top 10)")
     if alerts is not None and len(alerts) > 0:
         st.error(f"Top 10 des flux suspects sur {len(alerts)} anomalies.")
-        # Interactive table with triage controls
+        # Interactive table with triage controls and job status
         for idx, row in alerts.head(10).iterrows():
-            with st.expander(f"Alert #{row['id']} - Score {row['anomaly_score']}"):
-                st.write(row[['created_at', 'anomaly_score', 'severity', 'status']])
-                new_status = st.selectbox('Status', ['new', 'investigating', 'resolved', 'false_positive'], index=['new','investigating','resolved','false_positive'].index(row['status']))
-                if st.button(f"Update status for {row['id']}"):
+            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+            job_status = 'N/A'
+            if row.get('advice_job_id'):
+                job_status = get_job_status(row['advice_job_id'], redis_url) or 'unknown'
+            
+            with st.expander(f"Alert #{row['id']} - Score {row['anomaly_score']} - Job: {job_status}"):
+                col_info, col_job = st.columns(2)
+                with col_info:
+                    st.write(row[['created_at', 'anomaly_score', 'severity', 'status']])
+                with col_job:
+                    st.write(f"**Job Status:** {job_status}")
+                    if row.get('advice_job_id'):
+                        st.write(f"**Job ID:** {row['advice_job_id']}")
+                
+                new_status = st.selectbox('Status', ['new', 'investigating', 'resolved', 'false_positive'], index=['new','investigating','resolved','false_positive'].index(row['status']), key=f"status_{row['id']}")
+                if st.button(f"Update status for {row['id']}", key=f"btn_status_{row['id']}"):
                     session.query(Alert).filter(Alert.id == int(row['id'])).update({"status": new_status})
                     session.add(AuditLog(alert_id=int(row['id']), action='status_update', actor='dashboard', note=new_status))
                     session.commit()
@@ -226,3 +239,88 @@ elif page == "Audit Logs":
             st.info("No audit logs available yet.")
     except Exception as e:
         st.error(f"Error loading audit logs: {e}")
+
+elif page == "System Status":
+    st.header("🔧 System Status & Health")
+    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🔴 Redis Connection")
+        redis_health = check_redis_health(redis_url)
+        if redis_health.get('connected'):
+            st.success(f"✅ Connected to {redis_url}")
+            queue_stats = get_queue_stats(redis_url)
+            if 'error' not in queue_stats:
+                st.metric("Queue Depth", queue_stats['queue_depth'])
+                st.metric("Jobs Started", queue_stats['jobs_started'])
+                st.metric("Jobs Finished", queue_stats['jobs_finished'])
+                st.metric("Jobs Failed", queue_stats['jobs_failed'])
+            else:
+                st.error(f"Error fetching stats: {queue_stats['error']}")
+        else:
+            st.error(f"❌ Redis not available: {redis_health.get('error')}")
+            st.info("**To enable background jobs:**")
+            st.code("docker run -p 6379:6379 redis:7", language="bash")
+    
+    with col2:
+        st.subheader("📊 Database")
+        session = get_session(DB_PATH)
+        alert_count = session.query(Alert).count()
+        audit_count = session.query(AuditLog).count()
+        st.metric("Total Alerts", alert_count)
+        st.metric("Audit Log Entries", audit_count)
+        
+        advice_pending = session.query(Alert).filter(Alert.advice.is_(None)).count()
+        advice_done = session.query(Alert).filter(Alert.advice.isnot(None)).count()
+        st.metric("Advice Pending", advice_pending)
+        st.metric("Advice Generated", advice_done)
+
+elif page == "Control Panel":
+    st.header("⚙️ Control Panel")
+    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    
+    st.subheader("Bulk Operations")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Generate Advice")
+        session = get_session(DB_PATH)
+        pending_count = session.query(Alert).filter(Alert.advice.is_(None)).count()
+        st.info(f"Alerts pending advice: {pending_count}")
+        
+        if st.button("🤖 Enqueue All Pending Advice", key="bulk_enqueue"):
+            try:
+                redis_health = check_redis_health(redis_url)
+                if redis_health.get('connected'):
+                    pending_alerts = session.query(Alert).filter(Alert.advice.is_(None)).all()
+                    alert_ids = [a.id for a in pending_alerts]
+                    if alert_ids:
+                        enqueued = bulk_enqueue_advice(alert_ids, DB_PATH, redis_url)
+                        st.success(f"✅ Enqueued {enqueued} advice jobs")
+                    else:
+                        st.info("No pending alerts to enqueue")
+                else:
+                    st.error(f"❌ Redis not available: {redis_health.get('error')}")
+            except Exception as e:
+                st.error(f"Error: {e}")
+    
+    with col2:
+        st.markdown("### Data Export")
+        session = get_session(DB_PATH)
+        alerts_df = pd.read_sql("SELECT * FROM alerts ORDER BY created_at DESC", session.bind)
+        if not alerts_df.empty:
+            csv = alerts_df.to_csv(index=False)
+            st.download_button("📥 Download Alerts CSV", csv, file_name="alerts_export.csv", mime="text/csv")
+        
+        logs_df = pd.read_sql("SELECT * FROM audit_logs ORDER BY timestamp DESC", session.bind)
+        if not logs_df.empty:
+            csv = logs_df.to_csv(index=False)
+            st.download_button("📥 Download Audit Logs CSV", csv, file_name="audit_logs_export.csv", mime="text/csv")
+    
+    st.markdown("---")
+    st.subheader("Worker Commands")
+    st.info("To run background workers outside the dashboard, use these commands:")
+    st.code("rq worker advisor", language="bash")
+    st.markdown("**Or with Docker:**")
+    st.code("docker-compose up --build", language="bash")
