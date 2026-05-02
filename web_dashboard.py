@@ -5,9 +5,7 @@ Run with: python web_dashboard.py
 """
 
 import os
-import json
 import pandas as pd
-from datetime import datetime, timedelta
 from flask import Flask, render_template_string, jsonify, request
 from flask_cors import CORS
 
@@ -1135,13 +1133,13 @@ def api_audit():
     return jsonify({
         "logs": [
             {
-                "timestamp": l.timestamp.isoformat() if l.timestamp else "",
-                "alert_id": l.alert_id,
-                "action": l.action,
-                "actor": l.actor,
-                "note": l.note,
+                "timestamp": log.timestamp.isoformat() if log.timestamp else "",
+                "alert_id": log.alert_id,
+                "action": log.action,
+                "actor": log.actor,
+                "note": log.note,
             }
-            for l in logs
+            for log in logs
         ]
     })
 
@@ -1214,7 +1212,7 @@ def generate_advice():
             try:
                 generate_advice_for_alert(alert.id, DB_PATH)
                 processed += 1
-            except:
+            except Exception:  # noqa: BLE001
                 pass
         
         session.close()
