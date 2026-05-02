@@ -45,7 +45,7 @@ def load_csv(file_path):
 st.sidebar.title("🛡️ NetPulse Command")
 st.sidebar.subheader("System Actions")
 
-# Simple token-based auth (optional)
+    st.sidebar.info("No DASHBOARD_TOKEN set — dashboard is running in dev mode.")
 ENV_TOKEN = os.getenv("DASHBOARD_TOKEN")
 if ENV_TOKEN:
     if "authenticated" not in st.session_state:
@@ -56,10 +56,10 @@ if ENV_TOKEN:
         if st.sidebar.button("Login"):
             if token_input == ENV_TOKEN:
                 st.session_state["authenticated"] = True
-                st.sidebar.success("Authenticated")
+            st.sidebar.success("Detection complete!")
             else:
                 st.sidebar.error("Invalid token")
-        st.sidebar.warning("This dashboard is protected. Please log in.")
+            st.sidebar.error(f"Detection error: {e}")
         st.stop()
     else:
         if st.sidebar.button("Logout"):
@@ -91,16 +91,16 @@ if st.sidebar.button("🤖 2. Generate AI Advice"):
         if not alerts:
             st.sidebar.warning("Aucune alerte sans conseil à traiter.")
         else:
-            # Try to enqueue tasks with RQ/Redis. If not available, fall back to synchronous generation.
+                with st.spinner("Generating AI advice synchronously (Redis unavailable)..."):
             redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
             try:
                 from redis import Redis
                 from rq import Queue
 
                 redis_conn = Redis.from_url(redis_url)
-                q = Queue('advisor', connection=redis_conn)
+                        st.sidebar.success(f"Generated advice for {processed} alerts (sync fallback).")
 
-                enqueued = 0
+                        st.sidebar.error(f"Advice generation error: {e}")
                 for a in alerts:
                     job = q.enqueue('tasks.generate_advice_for_alert', a.id, DB_PATH)
                     a.advice_job_id = job.id
@@ -112,14 +112,14 @@ if st.sidebar.button("🤖 2. Generate AI Advice"):
 
             except Exception:
                 # Fallback: run synchronously (keeps behavior if Redis not available)
-                with st.spinner("Génération synchrone de conseils IA (Redis absent)..."):
-                    try:
+st.title("🛡️ NetPulse-Shield Dashboard")
+st.caption("Local network anomaly detection and remediation dashboard")
                         from tasks import generate_advice_for_alert
                         processed = 0
                         for a in alerts:
                             generate_advice_for_alert(a.id, DB_PATH)
                             processed += 1
-                        st.sidebar.success(f"Generated advice for {processed} alerts (sync fallback).")
+    st.header("📊 Network Overview")
                     except Exception as e:
                         st.sidebar.error(f"Erreur génération conseils: {e}")
 
@@ -138,7 +138,7 @@ st.caption("Ingénierie RST - ENSA Kénitra | Surveillance Réseau par IA")
 
 # =========================
 # Page Logic
-# =========================
+    st.header("🔍 EDA & Insights")
 if page == "Overview":
     st.header("📊 Vue d'ensemble du Réseau")
     if data is not None:
@@ -150,14 +150,14 @@ if page == "Overview":
         col2.metric("Alertes IA", total_alerts, delta=total_alerts, delta_color="inverse")
         col3.metric("État du Système", "Opérationnel" if total_alerts < 3000 else "Critique")
 
-        # Graphique simple de répartition
+            st.subheader("📈 Sload Distribution")
         labels = ['Normal', 'Anomalie']
         values = [total_records - total_alerts, total_alerts]
         fig = px.pie(names=labels, values=values, color_discrete_sequence=['#238636', '#da3633'], hole=0.4)
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("👋 Bienvenue Meriem. Lancez l'analyse pour commencer.")
-
+            st.subheader("📍 Scatter Plot: Sload vs Dload")
 elif page == "EDA & Insights":
     st.header("🔍 Exploration des Données (EDA)")
     if data is not None and alerts is not None:
@@ -167,9 +167,9 @@ elif page == "EDA & Insights":
         data_viz['Status'] = 'Normal'
         # On marque comme 'Anomalie' les lignes présentes dans alerts
         data_viz.loc[data_viz.index.isin(alerts.index), 'Status'] = 'Anomalie'
-
+    st.header("🚨 Detected Alerts (Top 10)")
         col_a, col_b = st.columns(2)
-
+        st.error(f"Top 10 suspicious flows from {len(alerts)} anomalies.")
         with col_a:
             st.subheader("📈 Distribution de la Charge (Sload)")
             fig_hist = px.histogram(data_viz, x="Sload", color="Status", 
@@ -196,13 +196,13 @@ elif page == "Detected Alerts":
             redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
             job_status = 'N/A'
             if row.get('advice_job_id'):
-                job_status = get_job_status(row['advice_job_id'], redis_url) or 'unknown'
+    st.header("🛡️ Security Report")
             
             with st.expander(f"Alert #{row['id']} - Score {row['anomaly_score']} - Job: {job_status}"):
                 col_info, col_job = st.columns(2)
                 with col_info:
                     st.write(row[['created_at', 'anomaly_score', 'severity', 'status']])
-                with col_job:
+        st.info("Generate the report to view the latest remediation guidance.")
                     st.write(f"**Job Status:** {job_status}")
                     if row.get('advice_job_id'):
                         st.write(f"**Job ID:** {row['advice_job_id']}")
