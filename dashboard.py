@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import streamlit as st
-import plotly.express as px
+import plotly.express docker run -p 6379:6379 redis:7as px
 from detector import NetworkAnomalyDetector
 from db import get_session, create_db, Alert, AuditLog
 from system_utils import check_redis_health, get_queue_stats, get_job_status, bulk_enqueue_advice
