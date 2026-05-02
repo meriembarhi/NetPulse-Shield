@@ -13,6 +13,20 @@ Core flow: raw traffic CSV → anomaly detection → alerts → remediation advi
 - `pipeline.py` runs the full workflow end to end from the command line.
 - `tests/` contains unit and integration tests.
 
+## Dashboard
+
+The Streamlit dashboard includes these pages:
+
+- Overview
+- EDA & Insights
+- Detected Alerts
+- Security Report
+- Audit Logs
+- System Status
+- Control Panel
+
+The dashboard runs in dev mode without Redis. If Redis is available, it can queue advice generation jobs in the background; otherwise it falls back to synchronous processing.
+
 ## Requirements
 
 - Python 3.10+
