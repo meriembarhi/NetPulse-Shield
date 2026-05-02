@@ -1,43 +1,30 @@
 # NetPulse-Shield
 
-NetPulse-Shield is an intelligent, Python-based security framework designed to bridge the gap between real-time network monitoring and incident response. By combining Anomaly Detection via Machine Learning (Isolation Forest) with a Generative AI pipeline, the system not only identifies threats but also delivers expert-level remediation advice and technical configuration commands.  The entire framework operates through a RAG (Retrieval-Augmented Generation) architecture, running 100% locally with no external API keys or internet connection required, ensuring maximum data privacy and infrastructure resilience.
+NetPulse-Shield is a Python-based network security framework that combines anomaly detection (Isolation Forest) with a Retrieval-Augmented Generation (RAG) pipeline for remediation guidance. The system is designed for local execution with no external API dependencies, making it suitable for air-gapped environments.
+
+**Core design:** Network traffic → anomaly detection → alerts → remediation advice → security report.
 
 
 ---
 
 ## How It Works
 
-NetPulse-Shield operates as a continuous intelligence pipeline, transforming raw network data into actionable security reports through three main stages.  
+NetPulse-Shield processes network traffic through a three-stage pipeline:
 
-1. Anomaly Detection (The ML Layer)
-The system monitors incoming network traffic, focusing on key features such as Sload (source load), sttl (source time-to-live), and sbytes (source bytes). 
+**1. Anomaly Detection (Isolation Forest)**
+- Loads preprocessed network data containing features like source load (Sload), source time-to-live (sttl), and byte counts.
+- Trains an Isolation Forest model to identify statistical outliers in traffic patterns.
+- Produces a set of flagged records (anomalies) and saves the top 10 to `alerts.csv`.
 
- Isolation Forest Algorithm: 
- The detection engine uses an Isolation Forest model to analyze these features. Unlike traditional models that learn what "normal" traffic looks like, this algorithm specifically identifies "anomalies" by isolating data points that are few and different. 
+**2. Retrieval & Guidance (RAG)**
+- Loads `alerts.csv` as input to the remediation workflow.
+- Queries a vector database built from a knowledge base to find relevant security practices.
+- If the vector store is unavailable, provides a fallback generic mitigation plan.
 
- Alert Generation: 
- When a data point is flagged as anomalous, its characteristics are captured and sent to the remediation suite.  
-
-2. Context Retrieval (The RAG Engine)
-Once an anomaly is detected, the Modular RAG Advisor takes over to find a solution. 
-
- Vectorization:
- The detected symptoms are converted into a mathematical "embedding" using the Sentence-Transformer model in embeddings.py. 
-
- Similarity Search: 
- The system queries the FAISS Index to find the most relevant security guides in the knowledge_base.py. Instead of keyword matching, it performs a semantic search to understand the context of the threat (e.g., recognizing that "flooding" and "DDoS" are related).  
-
- Offline Resilience: 
- If no internet connection is detected, the system automatically falls back to a TF-IDF vectorizer, ensuring security advice is always available even in air-gapped environments. 
-
- 3. Response Generation (The Expert Output)
- Finally, the system synthesizes the gathered information into a human-readable format.
-
- Standard Report (solver.py): 
- Concatenates the retrieved expert guides into a structured remediation plan. 
-
- Advanced Synthesis (remediator.py): 
- If Ollama is active, the system sends the data to a local Llama 3 model. The LLM acts as a Senior Security Engineer, providing a risk assessment and generating specific Cisco IOS ACL commands to block the attack at the hardware level. 
+**3. Reporting**
+- Formats retrieved guidance into a human-readable remediation report.
+- Optionally integrates with Ollama/Llama 3 for advanced synthesis (if available).
+- Outputs a security report that includes identified threats and recommended actions. 
 ---
 
 ## Pipeline
@@ -66,19 +53,18 @@ Once an anomaly is detected, the Modular RAG Advisor takes over to find a soluti
 Note on Defensive Design: Both solver.py and remediator.py implement a "fail-fast" mechanism. They verify the presence of alerts.csv before initializing heavy AI models, ensuring the pipeline remains stable and user-friendly.
 ---
 
-## Features
+## Key Components
 
-
-
-| Component | Technology | Core Purpose |
+| Component | Technology | Purpose |
 | :--- | :--- | :--- |
-| **`clean_data.py`** | **Pandas** | Handles preprocessing, feature selection (e.g., `Sload`, `sttl`), and normalization of raw network logs. |
-| **`detector.py`** | **Scikit-learn** | Employs an **Isolation Forest** (Unsupervised ML) to isolate rare and suspicious traffic signatures. |
-| **`advisor.py`** | **FAISS** | The RAG engine that performs semantic similarity searches to match threats with expert advice. |
-| **`embeddings.py`** | **S-Transformers / TF-IDF** | Converts text into mathematical vectors; includes an offline fallback for air-gapped security. |
-| **`remediator.py`** | **Ollama (Llama 3)** | An advanced LLM module that synthesizes risk reports and generates real-time **Cisco IOS ACL** commands. |
-| **`solver.py`** | **Python Logic** | The central orchestrator that manages the automated data flow from "Alert" to "Actionable Advice." |
-| **`dashboard.py`** | **Streamlit** | An interactive SOC (Security Operations Center) dashboard to visualize detection results and security reports. |
+| **`clean_data.py`** | Pandas | Preprocesses raw network CSVs, selects numeric features, handles missing values. |
+| **`detector.py`** | Scikit-learn | Trains and runs Isolation Forest anomaly detection; outputs alerts.csv. |
+| **`advisor.py`** | FAISS + LangChain | Retrieves relevant remediation guidance from the knowledge base via semantic search. |
+| **`embeddings.py`** | Sentence-Transformers | Builds vector embeddings for knowledge base documents. |
+| **`solver.py`** | Python | Orchestrates the detector → alerts → advisor → report workflow. |
+| **`remediator.py`** | Ollama (optional) | Advanced LLM integration for synthesis (requires Ollama running locally). |
+| **`dashboard.py`** | Streamlit | Interactive dashboard for visualizing detection results. |
+| **`tests/`** | pytest | Unit and integration tests covering detector, solver, and full pipeline. |
 
 ---
 
@@ -86,18 +72,40 @@ Note on Defensive Design: Both solver.py and remediator.py implement a "fail-fas
 
 ```
 NetPulse-Shield/
-├── .github/                   # CI/CD Configuration
+├── .github/
 │   └── workflows/
-│       └── ci.yml             # GitHub Actions: Automated testing & linting pipeline
-├── tests/                     # Automated Validation Suite
-│   ├── test_detector.py       # Unit tests for ML Anomaly Detection
-│   └── test_solver.py         # Unit tests for RAG Logic and technical accuracy
+│       └── ci.yml                 # GitHub Actions: build, lint, and test automation
+├── tests/
+│   ├── __init__.py
+│   ├── test_detector.py           # Unit tests for anomaly detection
+│   ├── test_solver.py             # Unit tests for orchestration
+│   ├── test_pipeline_integration.py # End-to-end detector → solver tests
+│   └── fixtures/
+│       ├── detector_sample.csv    # Sample detector input (UNSW-style)
+│       └── alerts_sample.csv      # Sample alerts for solver tests
 ├── models/
-│   ├── netpulse_model.joblib  # Serialized Isolation Forest model
-│   └── netpulse_model_scaler.joblib # Serialized StandardScaler
+│   ├── netpulse_model.joblib      # Trained Isolation Forest model
+│   └── netpulse_model_scaler.joblib # Feature scaler
 ├── data/
-│   └── README.md              # Instructions for dataset placement
+│   ├── README.md                  # Dataset setup instructions
+│   ├── final_project_data.csv     # Processed data (generated by clean_data.py)
+│   └── sample_traffic.csv         # Example traffic sample
 ├── docs/
+│   └── remediation_knowledge.txt  # Raw security guidance repository
+├── detector.py                    # Isolation Forest anomaly detection
+├── clean_data.py                  # Data preprocessing and feature selection
+├── solver.py                      # Workflow orchestrator
+├── advisor.py                     # RAG retrieval and fallback handling
+├── embeddings.py                  # Vector embedding and indexing
+├── knowledge_base.py              # Knowledge base loading and parsing
+├── remediator.py                  # Advanced LLM synthesis (Ollama)
+├── dashboard.py                   # Streamlit visualization dashboard
+├── requirements.txt               # Python dependencies
+├── alerts.csv                     # Generated anomaly alerts (runtime)
+├── Security_Report.txt            # Generated remediation report (runtime)
+├── LICENSE                        # MIT License
+└── README.md                      # This file
+```
 │   └── remediation_knowledge.txt # Raw security intelligence source
 ├── detector.py                # ML Engine: Isolation Forest anomaly detector
 ├── solver.py                  # RAG Orchestrator: With added Fail-Fast data verification[cite: 1]

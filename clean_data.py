@@ -17,6 +17,9 @@ def prepare_final_dataset():
     except FileNotFoundError:
         print("❌ Erreur : Fichier 'NUSW-NB15_features.csv' introuvable dans /data.")
         return
+    except Exception as e:
+        print(f"❌ Erreur lors du chargement des noms de colonnes : {e}")
+        return
 
     # 2. CHARGEMENT DES DONNÉES BRUTES
     # On utilise low_memory=False pour gérer les types de données mixtes dans le dataset original
@@ -26,11 +29,27 @@ def prepare_final_dataset():
         return
 
     print("⏳ Chargement des données brutes...")
-    raw_data = pd.read_csv(input_file, header=None, names=column_names, low_memory=False)
+    try:
+        raw_data = pd.read_csv(input_file, header=None, names=column_names, low_memory=False)
+    except Exception as e:
+        print(f"❌ Erreur lors du chargement des données : {e}")
+        return
+    
     initial_count = len(raw_data)
+    
+    if initial_count == 0:
+        print("❌ Erreur : Le fichier source est vide.")
+        return
 
     # 3. SÉLECTION DES "POWER FEATURES" & NETTOYAGE
     power_features = ['sttl', 'sbytes', 'dbytes', 'Sload', 'Dload', 'Label']
+    
+    # Vérification de la présence des colonnes requises
+    missing_cols = [col for col in power_features if col not in raw_data.columns]
+    if missing_cols:
+        print(f"❌ Erreur : Colonnes manquantes : {missing_cols}")
+        print(f"   Colonnes disponibles : {raw_data.columns.tolist()}")
+        return
     
     # Création du DataFrame filtré
     clean_df = raw_data[power_features].copy()
@@ -42,6 +61,10 @@ def prepare_final_dataset():
     # Remplacement des valeurs infinies (fréquentes dans Sload/Dload) par NaN, puis suppression
     clean_df = clean_df.replace([np.inf, -np.inf], np.nan).dropna()
     # -------------------------------------
+    
+    if len(clean_df) == 0:
+        print("❌ Erreur : Aucune donnée valide restante après nettoyage.")
+        return
 
     # 4. ÉCHANTILLONNAGE & SAUVEGARDE
     # On prend 50 000 lignes pour garantir la fluidité du Dashboard Streamlit
@@ -51,7 +74,11 @@ def prepare_final_dataset():
         final_set = clean_df
 
     output_path = 'data/final_project_data.csv'
-    final_set.to_csv(output_path, index=False)
+    try:
+        final_set.to_csv(output_path, index=False)
+    except Exception as e:
+        print(f"❌ Erreur lors de l'écriture du fichier : {e}")
+        return
 
     # 5. RÉSUMÉ TECHNIQUE
     print("\n✅ Nettoyage terminé avec succès !")

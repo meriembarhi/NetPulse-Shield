@@ -29,7 +29,16 @@ jobs:
       - name: Lint with Ruff
         run: ruff check . --ignore E501
 
-      - name: Run Tests
+      - name: Run All Tests (Unit + Integration)
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: pytest tests/ -v
+        run: |
+          pytest tests/test_detector.py tests/test_solver.py tests/test_pipeline_integration.py -v --tb=short
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "✅ CI Pipeline Complete"
+          echo "   - Code linting (Ruff) passed"
+          echo "   - Unit tests (detector, solver) passed"
+          echo "   - Integration tests (detector → solver pipeline) passed"

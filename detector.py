@@ -40,11 +40,20 @@ class NetworkAnomalyDetector:
     # ------------------------------------------------------------------
 
     def preprocess(self, df: pd.DataFrame, training: bool = False) -> np.ndarray:
+        if df is None or len(df) == 0:
+            raise ValueError("Input dataframe is empty or None.")
+        
         cols_to_exclude = ['Label', 'label', 'anomaly', 'is_anomaly', 'anomaly_score']
         self.feature_columns = [
             c for c in df.select_dtypes(include=[np.number]).columns
             if c not in cols_to_exclude
         ]
+        
+        if not self.feature_columns:
+            raise ValueError(
+                f"No numeric features found. Available columns: {df.columns.tolist()}. "
+                "Expected at least one numeric column for training."
+            )
 
         features = df[self.feature_columns].copy()
         features.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -247,6 +256,9 @@ class NetworkAnomalyDetector:
     # ------------------------------------------------------------------
 
     def analyze(self, df: pd.DataFrame, force_train: bool = False) -> pd.DataFrame:
+        if df is None or len(df) == 0:
+            raise ValueError("Input dataframe is empty or None. Cannot analyze.")
+        
         is_trained = self.model is not None and hasattr(self.model, "estimators_")
         y_true = df['Label'] if 'Label' in df.columns else None
 
