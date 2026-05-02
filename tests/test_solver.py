@@ -36,6 +36,7 @@ def test_solver_processes_a_realistic_alert_csv(tmp_path, monkeypatch, capsys):
     solver.main()
 
     output = capsys.readouterr().out
-    assert "NetPulse-Shield — RAG Advisor (Modular)" in output
+    assert "NetPulse-Shield — Remediation Advisor" in output
+    assert "Alerts detected. Initializing the advisor..." in output
     assert "Lateral movement detected" in output
     assert "ACL, lockout, and policy controls" in output

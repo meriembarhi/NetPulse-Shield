@@ -40,7 +40,7 @@ def test_detector_to_solver_pipeline(tmp_path, monkeypatch, capsys):
     solver.main()
 
     output = capsys.readouterr().out
-    assert "NetPulse-Shield — RAG Advisor (Modular)" in output
-    assert "Alerts detected. Initializing RAG Remediation Pipeline" in output
+    assert "NetPulse-Shield — Remediation Advisor" in output
+    assert "Alerts detected. Initializing the advisor..." in output
     assert "Lateral movement detected via internal port scanning on port 445." in output
     assert "Integration test remediation for:" in output
