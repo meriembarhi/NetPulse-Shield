@@ -18,7 +18,7 @@ provides accurate, expert-level "treatments" for any detected network "symptoms"
 Fallback Resilience: When the vector store is thin or unreachable, the system gracefully
 returns a generic but actionable remediation fallback.
 '''
-from typing import List, Dict, Any
+from typing import List
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
