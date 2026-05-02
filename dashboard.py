@@ -46,6 +46,29 @@ def load_csv(file_path):
 st.sidebar.title("🛡️ NetPulse Command")
 st.sidebar.subheader("System Actions")
 
+# Simple token-based auth (optional)
+ENV_TOKEN = os.getenv("DASHBOARD_TOKEN")
+if ENV_TOKEN:
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+
+    if not st.session_state.get("authenticated"):
+        token_input = st.sidebar.text_input("Enter dashboard token", type="password")
+        if st.sidebar.button("Login"):
+            if token_input == ENV_TOKEN:
+                st.session_state["authenticated"] = True
+                st.sidebar.success("Authenticated")
+            else:
+                st.sidebar.error("Invalid token")
+        st.sidebar.warning("This dashboard is protected. Please log in.")
+        st.stop()
+    else:
+        if st.sidebar.button("Logout"):
+            st.session_state["authenticated"] = False
+            st.experimental_rerun()
+else:
+    st.sidebar.info("No DASHBOARD_TOKEN set — dashboard is open (dev mode).")
+
 if st.sidebar.button("🚀 1. Run Network Analysis"):
     with st.spinner("Analyse du trafic (Isolation Forest)..."):
         try:

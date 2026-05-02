@@ -92,29 +92,31 @@ def test_detector_to_solver_pipeline(tmp_path, monkeypatch, capsys):
 ```
 
 **Key Design Decisions:**
-- Uses monkeypatch to inject a FakeAdvisor, avoiding expensive vector store initialization.
-- Operates in isolated temp directory (tmp_path), so no side effects.
-- Directly tests file-based handoff that real users will experience.
-- Test passes: ✅ All output assertions green.
 
 **Why This Matters:** Integration tests are the closest proxy for real-world usage. This test now proves the pipeline works, not just individual components.
 
----
-
-### 4. **Hardened Input Validation** ✅
 
 #### 4a. **detector.py**
 
+### 9. Simple Dashboard Authentication (New)
+
+**What I added**
+- A token-based login gate in `dashboard.py` that reads `DASHBOARD_TOKEN` from the environment. When set, the sidebar shows a password field and a `Login` button. Until the correct token is entered the dashboard halts rendering to prevent access to triage and advisor actions.
+
+**Why this matters**
+- Prevents accidental or unauthorized calls to remediation actions and protects triage controls in shared environments. It's a lightweight first line of defense suitable for demos and internal deployments.
+
+**Developer notes**
+- To enable: set environment variable `DASHBOARD_TOKEN` (e.g., `export DASHBOARD_TOKEN=supersecret`) before launching Streamlit.
+- Behavior: if `DASHBOARD_TOKEN` is not set, the dashboard runs in open "dev mode" with an info message. When set, the app requires a login and supports logout.
+
+**Tests & Safety**
+- Unit tests were not changed because the auth gate only activates when `DASHBOARD_TOKEN` is present; CI/test environments typically do not set this variable. Local verification: `ruff` and `pytest` passed after the change.
+
 **Location:** `preprocess()` and `analyze()` methods
 
-**Validations Added:**
-
-```python
-# In preprocess()
 if df is None or len(df) == 0:
     raise ValueError("Input dataframe is empty or None.")
-
-if not self.feature_columns:
     raise ValueError(
         f"No numeric features found. Available columns: {df.columns.tolist()}. "
         "Expected at least one numeric column for training."
@@ -124,17 +126,9 @@ if not self.feature_columns:
 ```python
 # In analyze()
 if df is None or len(df) == 0:
-    raise ValueError("Input dataframe is empty or None. Cannot analyze.")
-```
-
 **Failure Modes Covered:**
 - ✅ Empty input → Clear error message
-- ✅ Wrong schema (no numeric columns) → Suggests available columns
 - ✅ None input → Fails fast before calling downstream functions
-
-**Test Coverage:** `test_analyze_requires_at_least_one_numeric_feature` verifies ValueError is raised.
-
-#### 4b. **clean_data.py**
 
 **Location:** `prepare_final_dataset()` function
 
