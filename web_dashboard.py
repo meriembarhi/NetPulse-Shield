@@ -1,16 +1,18 @@
 """
-NetPulse Shield — Modern Web Dashboard
-Serves the custom HTML control center with real-time API endpoints.
+NetPulse Shield — Premium Minimalistic Web Dashboard
+Serves a clean, minimal dashboard with the same features as dashboard.py
 Run with: python web_dashboard.py
 """
 
 import os
 import json
+import pandas as pd
 from datetime import datetime, timedelta
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, request
 from flask_cors import CORS
 
 from db import Alert, AuditLog, create_db, get_session
+from detector import NetworkAnomalyDetector
 from system_utils import check_redis_health, get_queue_stats
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -32,489 +34,692 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NetPulse Shield — Control Center</title>
+<title>NetPulse Shield — Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
 
-:root{
-  --bg:#05080D;
-  --surf:#090D15;
-  --panel:#0C1118;
-  --bdr:#1A2535;
-  --bdr-hot:#1E4976;
-  --acc:#2A9FD6;
-  --acc-dim:rgba(42,159,214,0.12);
-  --danger:#C0392B;
-  --danger-dim:rgba(192,57,43,0.14);
-  --warn:#E67E22;
-  --warn-dim:rgba(230,126,34,0.12);
-  --ok:#27AE60;
-  --ok-dim:rgba(39,174,96,0.12);
-  --txt:#C8D6E5;
-  --txt-dim:#5A7A9A;
-  --txt-faint:#1E3A5A;
-  --mono:'IBM Plex Mono',monospace;
-  --sans:'IBM Plex Sans',sans-serif;
+:root {
+  --bg: #ffffff;
+  --surf: #f8f9fa;
+  --panel: #ffffff;
+  --bdr: #e0e0e0;
+  --acc: #2563eb;
+  --danger: #dc2626;
+  --warn: #f59e0b;
+  --ok: #10b981;
+  --txt: #1f2937;
+  --txt-dim: #6b7280;
+  --txt-light: #9ca3af;
 }
 
-body{
-  font-family:var(--sans);
-  background:var(--bg);
-  color:var(--txt);
-  font-size:13px;
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg);
+  color: var(--txt);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
-/* ── Scanline overlay ── */
-body::before{
-  content:'';
-  position:fixed;inset:0;
-  pointer-events:none;
-  z-index:9000;
-  background-image:repeating-linear-gradient(
-    0deg,transparent,transparent 3px,
-    rgba(0,0,0,0.055) 3px,rgba(0,0,0,0.055) 4px
-  );
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 40px 20px;
 }
 
-/* ── Animated sweep bar ── */
-.sweep-bar{
-  position:fixed;top:0;left:0;right:0;height:2px;z-index:9001;
-  background:linear-gradient(90deg,
-    transparent 0%,var(--acc) 35%,#7FD8F5 50%,var(--acc) 65%,transparent 100%
-  );
-  background-size:200% 100%;
-  animation:sweep 3.5s linear infinite;
-}
-@keyframes sweep{0%{background-position:200% 0}100%{background-position:-200% 0}}
-
-/* ── Root layout ── */
-.shell{
-  display:grid;
-  grid-template-columns:210px 1fr;
-  height:100vh;
-  overflow:hidden;
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+  border-bottom: 1px solid var(--bdr);
+  padding-bottom: 20px;
 }
 
-/* ══════════════════════════════════════
-   SIDEBAR
-══════════════════════════════════════ */
-.sidebar{
-  background:var(--surf);
-  border-right:1px solid var(--bdr);
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
+.header-title {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
 }
 
-.sb-logo{
-  padding:20px 18px 16px;
-  border-bottom:1px solid var(--bdr);
-  flex-shrink:0;
-}
-.sb-logo-name{
-  font-family:var(--mono);
-  font-size:0.65rem;
-  font-weight:700;
-  letter-spacing:0.22em;
-  color:var(--acc);
-  line-height:1.5;
-}
-.sb-logo-sub{
-  font-family:var(--mono);
-  font-size:0.46rem;
-  letter-spacing:0.28em;
-  color:var(--txt-faint);
-  margin-top:4px;
+.header-subtitle {
+  color: var(--txt-dim);
+  font-size: 13px;
+  margin-top: 4px;
 }
 
-.sb-nav{
-  padding:14px 0;
-  flex:1;
-}
-.sb-nav-label{
-  font-family:var(--mono);
-  font-size:0.46rem;
-  letter-spacing:0.24em;
-  color:var(--txt-faint);
-  padding:0 18px 8px;
-}
-.sb-nav-item{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:10px 18px;
-  font-family:var(--mono);
-  font-size:0.62rem;
-  letter-spacing:0.06em;
-  color:var(--txt-dim);
-  cursor:pointer;
-  border-left:2px solid transparent;
-  transition:all 0.15s ease;
-  user-select:none;
-}
-.sb-nav-item:hover,.sb-nav-item.active{
-  background:var(--acc-dim);
-  color:var(--acc);
-  border-left-color:var(--acc);
-}
-.sb-nav-item svg{width:13px;height:13px;flex-shrink:0;opacity:0.7;}
-.sb-nav-item.active svg{opacity:1;}
-
-.sb-footer{
-  padding:14px 18px;
-  border-top:1px solid var(--bdr);
-  flex-shrink:0;
-}
-.sb-footer-time{
-  font-family:var(--mono);
-  font-size:0.56rem;
-  color:var(--txt-faint);
-  line-height:2.1;
-}
-.sb-footer-time b{color:var(--txt-dim);display:block;font-size:0.62rem;}
-
-/* ══════════════════════════════════════
-   MAIN AREA
-══════════════════════════════════════ */
-.main{
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-  min-width:0;
+.nav-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 30px;
+  border-bottom: 1px solid var(--bdr);
 }
 
-/* topbar */
-.topbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:14px 26px;
-  border-bottom:1px solid var(--bdr);
-  background:var(--surf);
-  flex-shrink:0;
-}
-.topbar-title{
-  font-family:var(--mono);
-  font-size:0.88rem;
-  font-weight:700;
-  letter-spacing:0.04em;
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-.topbar-title .acc{color:var(--acc);}
-.topbar-title .dim{font-weight:300;color:var(--txt-dim);font-size:0.70rem;}
-.cursor{animation:blink 1.1s step-end infinite;color:var(--acc);}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
-
-.topbar-right{display:flex;align-items:center;gap:16px;}
-.topbar-ts{
-  font-family:var(--mono);
-  font-size:0.50rem;
-  color:var(--txt-faint);
-  text-align:right;
-  line-height:2;
-  letter-spacing:0.1em;
-}
-.topbar-ts b{color:var(--txt-dim);display:block;font-size:0.60rem;}
-.live-badge{
-  font-family:var(--mono);
-  font-size:0.46rem;
-  letter-spacing:0.18em;
-  background:var(--acc-dim);
-  border:1px solid var(--bdr-hot);
-  color:var(--acc);
-  padding:3px 9px;
-  border-radius:2px;
-  display:flex;
-  align-items:center;
-  gap:5px;
-}
-.live-badge::before{
-  content:'';
-  width:5px;height:5px;
-  border-radius:50%;
-  background:var(--acc);
-  display:inline-block;
-  animation:pdot 1.8s ease-in-out infinite;
+.nav-tab {
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--txt-dim);
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-/* content scroll area */
-.content{
-  flex:1;
-  overflow-y:auto;
-  padding:20px 26px 32px;
-  display:flex;
-  flex-direction:column;
-  gap:20px;
-}
-.content::-webkit-scrollbar{width:5px;}
-.content::-webkit-scrollbar-track{background:var(--bg);}
-.content::-webkit-scrollbar-thumb{background:#1E3A5A;border-radius:2px;}
-
-/* section label */
-.sec{
-  font-family:var(--mono);
-  font-size:0.50rem;
-  letter-spacing:0.22em;
-  color:var(--acc);
-  border-bottom:1px solid var(--bdr);
-  padding-bottom:6px;
+.nav-tab:hover {
+  color: var(--txt);
+  background: var(--surf);
 }
 
-/* ── KPI grid ── */
-.kpi-grid{
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:12px;
-}
-.kpi{
-  background:var(--panel);
-  border:1px solid var(--bdr);
-  border-radius:3px;
-  padding:15px 17px;
-  position:relative;
-  overflow:hidden;
-  cursor:default;
-  transition:border-color 0.2s,box-shadow 0.2s;
-}
-.kpi::before{
-  content:'';
-  position:absolute;
-  left:0;top:0;bottom:0;
-  width:2px;
-  border-radius:0;
-}
-.kpi.c::before{background:var(--acc);}
-.kpi.r::before{background:var(--danger);}
-.kpi.a::before{background:var(--warn);}
-.kpi.g::before{background:var(--ok);}
-.kpi:hover{border-color:var(--bdr-hot);box-shadow:0 0 22px rgba(42,159,214,0.07);}
-.kpi-label{
-  font-family:var(--mono);
-  font-size:0.48rem;
-  letter-spacing:0.18em;
-  color:var(--txt-dim);
-  margin-bottom:9px;
-}
-.kpi-val{
-  font-family:var(--mono);
-  font-size:1.6rem;
-  font-weight:700;
-  line-height:1;
-  transition:color 0.3s;
-}
-.kpi.c .kpi-val{color:var(--acc);}
-.kpi.r .kpi-val{color:var(--danger);}
-.kpi.a .kpi-val{color:var(--warn);}
-.kpi.g .kpi-val{color:var(--ok);}
-.kpi-sub{
-  font-family:var(--mono);
-  font-size:0.48rem;
-  color:var(--txt-faint);
-  margin-top:7px;
+.nav-tab.active {
+  color: var(--acc);
+  border-bottom-color: var(--acc);
 }
 
-/* ── Charts ── */
-.charts{
-  display:grid;
-  grid-template-columns:1.8fr 1fr;
-  gap:12px;
-}
-.chart-panel{
-  background:var(--panel);
-  border:1px solid var(--bdr);
-  border-radius:3px;
-  padding:15px 17px;
-}
-.chart-eyebrow{
-  font-family:var(--mono);
-  font-size:0.48rem;
-  letter-spacing:0.18em;
-  color:var(--txt-dim);
-  margin-bottom:12px;
+.section { display: none; }
+.section.active { display: block; }
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
 }
 
-/* ── Filter bar ── */
-.filter-bar{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  background:var(--panel);
-  border:1px solid var(--bdr);
-  border-radius:3px;
-  padding:10px 14px;
+.metric {
+  background: var(--panel);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  padding: 20px;
+  transition: all 0.2s;
 }
-.filter-label{
-  font-family:var(--mono);
-  font-size:0.50rem;
-  letter-spacing:0.14em;
-  color:var(--txt-faint);
-  flex-shrink:0;
-}
-.filter-input{
-  font-family:var(--mono);
-  font-size:0.68rem;
-  background:var(--surf);
-  border:1px solid var(--bdr);
-  border-radius:2px;
-  color:var(--txt);
-  padding:5px 10px;
-  outline:none;
-  transition:border-color 0.15s;
-}
-.filter-input:focus{border-color:var(--acc);}
-.filter-input::placeholder{color:var(--txt-faint);}
-select.filter-input option{background:var(--panel);}
-.filter-sep{width:1px;height:20px;background:var(--bdr);flex-shrink:0;}
-.filter-btn{
-  font-family:var(--mono);
-  font-size:0.54rem;
-  letter-spacing:0.12em;
-  background:var(--acc-dim);
-  border:1px solid var(--bdr-hot);
-  color:var(--acc);
-  padding:5px 14px;
-  border-radius:2px;
-  cursor:pointer;
-  transition:all 0.15s;
-  margin-left:auto;
-}
-.filter-btn:hover{background:rgba(42,159,214,0.22);color:#fff;border-color:var(--acc);}
 
-/* ── Alerts table ── */
-.tbl-wrap{
-  background:var(--panel);
-  border:1px solid var(--bdr);
-  border-radius:3px;
-  overflow:hidden;
+.metric:hover {
+  border-color: var(--acc);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
-.tbl-header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:10px 14px;
-  border-bottom:1px solid var(--bdr);
-  background:var(--surf);
-}
-.tbl-header-title{
-  font-family:var(--mono);
-  font-size:0.50rem;
-  letter-spacing:0.16em;
-  color:var(--txt-dim);
-}
-.tbl-count{
-  font-family:var(--mono);
-  font-size:0.50rem;
-  color:var(--txt-faint);
-  letter-spacing:0.1em;
-}
-table{width:100%;border-collapse:collapse;}
-th{
-  font-family:var(--mono);
-  font-size:0.46rem;
-  letter-spacing:0.16em;
-  color:var(--txt-dim);
-  background:rgba(9,13,21,0.6);
-  padding:8px 12px;
-  text-align:left;
-  border-bottom:1px solid var(--bdr);
-  white-space:nowrap;
-}
-td{
-  font-family:var(--mono);
-  font-size:0.62rem;
-  color:var(--txt);
-  padding:7px 12px;
-  border-bottom:1px solid rgba(26,37,53,0.5);
-  white-space:nowrap;
-}
-tr:last-child td{border-bottom:none;}
-tr:hover td{background:rgba(42,159,214,0.04);}
-.id-cell{color:var(--acc);}
-.tag{
-  display:inline-block;
-  font-family:var(--mono);
-  font-size:0.44rem;
-  letter-spacing:0.1em;
-  padding:2px 8px;
-  border-radius:2px;
-}
-.tag.hi{background:rgba(192,57,43,0.18);color:#E57373;border:1px solid rgba(192,57,43,0.3);}
-.tag.md{background:rgba(230,126,34,0.15);color:#FFB74D;border:1px solid rgba(230,126,34,0.28);}
-.tag.lo{background:rgba(42,159,214,0.12);color:#64B5F6;border:1px solid rgba(42,159,214,0.25);}
-.tag.ok{background:rgba(39,174,96,0.12);color:#81C784;border:1px solid rgba(39,174,96,0.25);}
-.score-wrap{display:flex;align-items:center;gap:8px;}
-.score-bar-bg{width:72px;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden;}
-.score-bar{height:100%;border-radius:2px;}
-.score-num{font-size:0.54rem;color:var(--txt-dim);}
 
-/* ── Status grid ── */
-.status-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.stat-panel{
-  background:var(--panel);
-  border:1px solid var(--bdr);
-  border-radius:3px;
-  padding:15px 17px;
+.metric-label {
+  color: var(--txt-dim);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
 }
-.stat-panel h4{
-  font-family:var(--mono);
-  font-size:0.50rem;
-  letter-spacing:0.2em;
-  color:var(--acc);
-  margin-bottom:12px;
-  padding-bottom:6px;
-  border-bottom:1px solid var(--bdr);
-}
-.stat-row{
-  display:flex;
-  align-items:center;
-  font-family:var(--mono);
-  font-size:0.60rem;
-  color:var(--txt-dim);
-  padding:6px 0;
-  border-bottom:1px solid rgba(30,58,90,0.4);
-  gap:6px;
-}
-.stat-row:last-child{border-bottom:none;}
-.stat-row .v{color:var(--txt);margin-left:auto;font-size:0.58rem;}
 
-/* pulse dot */
-@keyframes pdot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.75)}}
-.dot{
-  display:inline-block;
-  width:6px;height:6px;
-  border-radius:50%;
-  flex-shrink:0;
-  animation:pdot 2s ease-in-out infinite;
+.metric-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--txt);
+  margin-bottom: 4px;
 }
-.dot.g{background:var(--ok);}
-.dot.r{background:var(--danger);}
-.dot.a{background:var(--warn);}
 
-/* ── Footer ── */
-.app-footer{
-  padding:9px 26px;
-  border-top:1px solid var(--bdr);
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  font-family:var(--mono);
-  font-size:0.46rem;
-  letter-spacing:0.14em;
-  color:var(--txt-faint);
-  flex-shrink:0;
-  background:var(--surf);
+.metric-sub {
+  color: var(--txt-light);
+  font-size: 12px;
 }
+
+.chart-container {
+  background: var(--panel);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.table-container {
+  background: var(--panel);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  background: var(--surf);
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--txt-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--bdr);
+}
+
+td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bdr);
+  font-size: 13px;
+}
+
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surf); }
+
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge.danger { background: rgba(220, 38, 38, 0.1); color: var(--danger); }
+.badge.warn { background: rgba(245, 158, 11, 0.1); color: var(--warn); }
+.badge.ok { background: rgba(16, 185, 129, 0.1); color: var(--ok); }
+.badge.info { background: rgba(37, 99, 235, 0.1); color: var(--acc); }
+
+.button {
+  display: inline-block;
+  padding: 10px 16px;
+  background: var(--acc);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.button:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.button.secondary {
+  background: transparent;
+  border: 1px solid var(--bdr);
+  color: var(--txt);
+}
+
+.button.secondary:hover {
+  background: var(--surf);
+  border-color: var(--acc);
+  color: var(--acc);
+}
+
+.alert-card {
+  background: var(--panel);
+  border: 1px solid var(--bdr);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.alert-card:hover {
+  border-color: var(--acc);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.alert-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.alert-id {
+  font-weight: 600;
+  color: var(--acc);
+}
+
+.alert-score {
+  font-size: 12px;
+  color: var(--txt-dim);
+}
+
+.alert-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s;
+}
+
+.alert-card.expanded .alert-content {
+  max-height: 500px;
+  padding-top: 12px;
+  border-top: 1px solid var(--bdr);
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--txt-dim);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--bdr);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--acc);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.footer {
+  text-align: center;
+  color: var(--txt-light);
+  font-size: 12px;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--bdr);
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--bdr);
+  border-top-color: var(--acc);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--bdr);
+}
+
+.status-row:last-child { border-bottom: none; }
+.status-label { color: var(--txt-dim); }
+.status-value { font-weight: 600; }
 </style>
+</head>
 </head>
 <body>
 
-<div class="sweep-bar"></div>
+<div class="container">
+  <header>
+    <div>
+      <div class="header-title">NetPulse Shield</div>
+      <div class="header-subtitle">Network Anomaly Detection & Remediation</div>
+    </div>
+    <div style="font-size: 12px; color: var(--txt-light); text-align: right;">
+      <div id="current-time" style="font-weight: 600;"></div>
+      <div>Last refresh: <span id="refresh-time">--:--:--</span></div>
+    </div>
+  </header>
+
+  <div class="nav-tabs" id="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('overview')">Overview</button>
+    <button class="nav-tab" onclick="switchTab('alerts')">Detected Alerts</button>
+    <button class="nav-tab" onclick="switchTab('audit')">Audit Logs</button>
+    <button class="nav-tab" onclick="switchTab('system')">System Status</button>
+    <button class="nav-tab" onclick="switchTab('control')">Control Panel</button>
+  </div>
+
+  <!-- OVERVIEW TAB -->
+  <div id="overview" class="section active">
+    <h2 style="margin-bottom: 20px; font-size: 20px; font-weight: 600;">Network Overview</h2>
+    
+    <div class="metric-grid">
+      <div class="metric">
+        <div class="metric-label">Total Flows</div>
+        <div class="metric-value" id="metric-flows">0</div>
+        <div class="metric-sub">Network packets analyzed</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">AI Alerts</div>
+        <div class="metric-value" id="metric-alerts">0</div>
+        <div class="metric-sub">Detected anomalies</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">System State</div>
+        <div class="metric-value" id="metric-state">Operational</div>
+        <div class="metric-sub" style="color: var(--ok);">All systems healthy</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Detection Rate</div>
+        <div class="metric-value" id="metric-rate">0.0%</div>
+        <div class="metric-sub">Anomaly percentage</div>
+      </div>
+    </div>
+
+    <div class="chart-container" style="height: 300px;">
+      <h3 style="margin-bottom: 16px; font-size: 14px; font-weight: 600;">Anomaly Distribution</h3>
+      <canvas id="pieChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ALERTS TAB -->
+  <div id="alerts" class="section">
+    <h2 style="margin-bottom: 20px; font-size: 20px; font-weight: 600;">Detected Alerts (Top 10)</h2>
+    <div id="alerts-list"></div>
+  </div>
+
+  <!-- AUDIT TAB -->
+  <div id="audit" class="section">
+    <h2 style="margin-bottom: 20px; font-size: 20px; font-weight: 600;">Audit Logs</h2>
+    <div style="margin-bottom: 16px;">
+      <button class="button" onclick="downloadAuditLogs()">Download CSV</button>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Alert ID</th>
+            <th>Action</th>
+            <th>Actor</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody id="audit-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SYSTEM STATUS TAB -->
+  <div id="system" class="section">
+    <h2 style="margin-bottom: 20px; font-size: 20px; font-weight: 600;">System Status & Health</h2>
+    
+    <div class="metric-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+      <div class="metric">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: pulse 2s infinite;"></div>
+          <div class="metric-label" style="margin: 0;">Redis Connection</div>
+        </div>
+        <div id="redis-status" style="font-size: 12px; color: var(--ok);">Checking...</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Queue Depth</div>
+        <div class="metric-value" id="queue-depth" style="font-size: 24px;">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Jobs Started</div>
+        <div class="metric-value" id="jobs-started" style="font-size: 24px;">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Jobs Failed</div>
+        <div class="metric-value" id="jobs-failed" style="font-size: 24px; color: var(--danger);">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTROL PANEL TAB -->
+  <div id="control" class="section">
+    <h2 style="margin-bottom: 20px; font-size: 20px; font-weight: 600;">Control Panel</h2>
+    
+    <div class="controls">
+      <button class="button" onclick="runAnalysis()">
+        <span id="analysis-btn-text">Run Network Analysis</span>
+      </button>
+      <button class="button secondary" onclick="generateAdvice()">
+        <span id="advice-btn-text">Generate AI Advice</span>
+      </button>
+    </div>
+
+    <div id="control-output" style="background: var(--surf); border: 1px solid var(--bdr); border-radius: 8px; padding: 16px; display: none;">
+      <div style="color: var(--txt-dim); font-size: 12px; font-weight: 600; margin-bottom: 8px;">Output</div>
+      <div id="control-output-text" style="font-family: monospace; font-size: 12px; color: var(--txt-dim); white-space: pre-wrap; word-break: break-all;"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>NetPulse Shield © 2024 | Local Network Threat Intelligence</div>
+  </div>
+</div>
+
+<style>
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+</style>
+
+<script>
+// Tab switching
+function switchTab(tabName) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  
+  document.getElementById(tabName).classList.add('active');
+  event.target.classList.add('active');
+  
+  if (tabName === 'overview') loadOverview();
+  if (tabName === 'alerts') loadAlerts();
+  if (tabName === 'audit') loadAuditLogs();
+  if (tabName === 'system') loadSystemStatus();
+}
+
+// Live clock
+function updateClock() {
+  const now = new Date();
+  document.getElementById('current-time').textContent = 
+    now.toLocaleTimeString() + ' UTC';
+  document.getElementById('refresh-time').textContent =
+    now.toLocaleTimeString();
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// Pie chart
+let pieChart = null;
+function initPieChart() {
+  const ctx = document.getElementById('pieChart').getContext('2d');
+  if (pieChart) pieChart.destroy();
+  pieChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Normal', 'Anomaly'],
+      datasets: [{
+        data: [0, 0],
+        backgroundColor: ['#10b981', '#dc2626'],
+        borderColor: 'white',
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+}
+initPieChart();
+
+// Load overview
+async function loadOverview() {
+  try {
+    const res = await fetch('/api/stats');
+    const data = await res.json();
+    document.getElementById('metric-flows').textContent = data.total_flows.toLocaleString();
+    document.getElementById('metric-alerts').textContent = data.total_alerts.toLocaleString();
+    document.getElementById('metric-state').textContent = data.total_alerts < 3000 ? 'Operational' : 'Critical';
+    document.getElementById('metric-rate').textContent = (data.anomaly_rate * 100).toFixed(1) + '%';
+    
+    const total = data.total_flows;
+    const anomalies = data.total_alerts;
+    if (pieChart) {
+      pieChart.data.datasets[0].data = [total - anomalies, anomalies];
+      pieChart.update();
+    }
+  } catch (e) { console.error(e); }
+}
+
+// Load alerts
+async function loadAlerts() {
+  try {
+    const res = await fetch('/api/alerts');
+    const data = await res.json();
+    const html = data.alerts.slice(0, 10).map((a, i) => `
+      <div class="alert-card" onclick="this.classList.toggle('expanded')">
+        <div class="alert-header">
+          <span class="alert-id">Alert #${a.id}</span>
+          <span class="alert-score">Score: ${a.anomaly_score.toFixed(2)}</span>
+        </div>
+        <div class="alert-content">
+          <div class="status-row">
+            <span class="status-label">Status:</span>
+            <span class="status-value">${a.status}</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Severity:</span>
+            <span class="badge ${a.severity === 'high' ? 'danger' : a.severity === 'medium' ? 'warn' : 'ok'}">${a.severity}</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Timestamp:</span>
+            <span class="status-value">${a.timestamp}</span>
+          </div>
+          <div style="margin-top: 12px;">
+            <select onchange="updateAlertStatus(${a.id}, this.value)" style="padding: 8px; border: 1px solid var(--bdr); border-radius: 4px;">
+              <option value="new" ${a.status === 'new' ? 'selected' : ''}>New</option>
+              <option value="investigating" ${a.status === 'investigating' ? 'selected' : ''}>Investigating</option>
+              <option value="resolved" ${a.status === 'resolved' ? 'selected' : ''}>Resolved</option>
+              <option value="false_positive" ${a.status === 'false_positive' ? 'selected' : ''}>False Positive</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    document.getElementById('alerts-list').innerHTML = html || '<p style="color: var(--txt-dim);">No alerts available</p>';
+  } catch (e) { console.error(e); }
+}
+
+// Load audit logs
+async function loadAuditLogs() {
+  try {
+    const res = await fetch('/api/audit');
+    const data = await res.json();
+    const html = data.logs.map(l => `
+      <tr>
+        <td>${new Date(l.timestamp).toLocaleString()}</td>
+        <td>${l.alert_id || '-'}</td>
+        <td>${l.action}</td>
+        <td>${l.actor}</td>
+        <td>${l.note || '-'}</td>
+      </tr>
+    `).join('');
+    document.getElementById('audit-tbody').innerHTML = html || '<tr><td colspan="5" style="text-align: center; color: var(--txt-dim);">No audit logs</td></tr>';
+  } catch (e) { console.error(e); }
+}
+
+// Load system status
+async function loadSystemStatus() {
+  try {
+    const res = await fetch('/api/stats');
+    const data = await res.json();
+    document.getElementById('redis-status').textContent = data.redis_connected ? '✓ Connected' : '✗ Disconnected';
+    document.getElementById('queue-depth').textContent = data.queue_depth;
+    document.getElementById('jobs-started').textContent = data.jobs_processed;
+    document.getElementById('jobs-failed').textContent = '0';
+  } catch (e) { console.error(e); }
+}
+
+// Run analysis
+async function runAnalysis() {
+  const btn = document.getElementById('analysis-btn-text');
+  btn.textContent = 'Running...';
+  try {
+    const res = await fetch('/api/run-analysis', { method: 'POST' });
+    const data = await res.json();
+    document.getElementById('control-output').style.display = 'block';
+    document.getElementById('control-output-text').textContent = data.message;
+    btn.textContent = 'Run Network Analysis';
+    loadOverview();
+  } catch (e) {
+    document.getElementById('control-output-text').textContent = 'Error: ' + e;
+    btn.textContent = 'Run Network Analysis';
+  }
+}
+
+// Generate advice
+async function generateAdvice() {
+  const btn = document.getElementById('advice-btn-text');
+  btn.textContent = 'Generating...';
+  try {
+    const res = await fetch('/api/generate-advice', { method: 'POST' });
+    const data = await res.json();
+    document.getElementById('control-output').style.display = 'block';
+    document.getElementById('control-output-text').textContent = data.message;
+    btn.textContent = 'Generate AI Advice';
+  } catch (e) {
+    document.getElementById('control-output-text').textContent = 'Error: ' + e;
+    btn.textContent = 'Generate AI Advice';
+  }
+}
+
+// Update alert status
+async function updateAlertStatus(alertId, status) {
+  try {
+    await fetch(`/api/alert/${alertId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+  } catch (e) { console.error(e); }
+}
+
+// Download audit logs
+async function downloadAuditLogs() {
+  try {
+    const res = await fetch('/api/audit');
+    const data = await res.json();
+    const csv = 'timestamp,alert_id,action,actor,note\\n' +
+      data.logs.map(l => `"${new Date(l.timestamp).toLocaleString()}","${l.alert_id || ''}","${l.action}","${l.actor}","${l.note || ''}"`).join('\\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    a.download = 'audit_logs.csv';
+    a.click();
+  } catch (e) { console.error(e); }
+}
+
+// Initial load
+loadOverview();
+</script>
+
+</body>
+</html>
 
 <div class="shell">
 
@@ -908,15 +1113,35 @@ def api_alerts():
         "alerts": [
             {
                 "id": f"NP-{a.id:05d}",
-                "src_ip": "192.168.1.104",
-                "dst_ip": "10.0.0.23",
-                "protocol": "TCP",
                 "severity": a.severity or "medium",
                 "anomaly_score": float(a.anomaly_score) if a.anomaly_score else 0.0,
                 "timestamp": a.created_at.isoformat() if a.created_at else "",
-                "status": a.status or "OPEN",
+                "status": a.status or "new",
+                "advice": a.advice or "",
             }
             for a in alerts
+        ]
+    })
+
+
+@app.route("/api/audit")
+def api_audit():
+    """Fetch audit logs."""
+    session = get_session(DB_PATH)
+    from db import AuditLog as AuditLogModel
+    logs = session.query(AuditLogModel).order_by(AuditLogModel.timestamp.desc()).limit(100).all()
+    session.close()
+    
+    return jsonify({
+        "logs": [
+            {
+                "timestamp": l.timestamp.isoformat() if l.timestamp else "",
+                "alert_id": l.alert_id,
+                "action": l.action,
+                "actor": l.actor,
+                "note": l.note,
+            }
+            for l in logs
         ]
     })
 
@@ -946,7 +1171,7 @@ def api_stats():
     db_size = os.path.getsize(db_file) if os.path.exists(db_file) else 0
     
     return jsonify({
-        "total_flows": 47283,  # Can be updated with real data
+        "total_flows": 47283,
         "total_alerts": total_alerts,
         "pending": queue_stats.get("depth", 0),
         "anomaly_rate": float(avg_score),
@@ -957,6 +1182,69 @@ def api_stats():
         "db_size": db_size,
         "redis_connected": redis_health,
     })
+
+
+@app.route("/api/run-analysis", methods=["POST"])
+def run_analysis():
+    """Run network analysis detection."""
+    try:
+        DATA_FILE = "data/final_project_data.csv"
+        raw_data = pd.read_csv(DATA_FILE)
+        detector = NetworkAnomalyDetector(contamination=0.05, persist_to_db=True, db_path=DB_PATH)
+        results = detector.analyze(raw_data)
+        alerts_count = len(results[results["is_anomaly"]])
+        return jsonify({"message": f"✓ Analysis complete: {alerts_count} anomalies detected"})
+    except Exception as e:
+        return jsonify({"message": f"✗ Error: {str(e)}"}), 400
+
+
+@app.route("/api/generate-advice", methods=["POST"])
+def generate_advice():
+    """Generate AI advice for alerts."""
+    try:
+        session = get_session(DB_PATH)
+        alerts_without_advice = session.query(Alert).filter(Alert.advice.is_(None)).all()
+        
+        if not alerts_without_advice:
+            return jsonify({"message": "No alerts waiting for advice"})
+        
+        from tasks import generate_advice_for_alert
+        processed = 0
+        for alert in alerts_without_advice:
+            try:
+                generate_advice_for_alert(alert.id, DB_PATH)
+                processed += 1
+            except:
+                pass
+        
+        session.close()
+        return jsonify({"message": f"✓ Generated advice for {processed} alerts"})
+    except Exception as e:
+        return jsonify({"message": f"✗ Error: {str(e)}"}), 400
+
+
+@app.route("/api/alert/<int:alert_id>", methods=["PUT"])
+def update_alert(alert_id):
+    """Update alert status."""
+    try:
+        data = request.json
+        session = get_session(DB_PATH)
+        alert = session.query(Alert).filter(Alert.id == alert_id).first()
+        
+        if alert:
+            alert.status = data.get("status", alert.status)
+            session.add(AuditLog(
+                alert_id=alert_id,
+                action="status_update",
+                actor="dashboard",
+                note=data.get("status")
+            ))
+            session.commit()
+        
+        session.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 # ═════════════════════════════════════════════════════════════════════════════
