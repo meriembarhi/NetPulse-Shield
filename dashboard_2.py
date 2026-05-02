@@ -1,342 +1,459 @@
+"""
+NetPulse-Shield Premium Dashboard
+A professional, high-performance alternative dashboard with advanced UI components.
+"""
+
 import os
+
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from db import Alert, AuditLog, create_db, get_session
 from detector import NetworkAnomalyDetector
 from system_utils import bulk_enqueue_advice, check_redis_health, get_queue_stats
 
+# Page Config
 st.set_page_config(
-    page_title="NetPulse-Shield Dashboard",
-    page_icon="🛡️",
+    page_title="NetPulse Premium",
+    page_icon="⚡",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
+# Premium Dark Theme CSS
 st.markdown(
     """
     <style>
-    .main { background-color: #0a0e27; color: #e0e0e0; }
-    .stMetric { background-color: #1a1f3a; border: 1px solid #2d3561; padding: 15px; border-radius: 8px; }
-    .stButton > button { background-color: #2563eb; color: white; border-radius: 6px; }
+    :root {
+        --primary: #00d9ff;
+        --danger: #ff3366;
+        --success: #00ff88;
+        --warning: #ffaa00;
+        --bg-dark: #0f1419;
+        --bg-darker: #0a0e17;
+        --text-light: #e0e0e0;
+    }
+    
+    html, body, [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, var(--bg-darker) 0%, #1a1f35 100%);
+        color: var(--text-light);
+    }
+    
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0a0e17 0%, #121820 100%);
+        border-right: 2px solid rgba(0, 217, 255, 0.1);
+    }
+    
+    .stMetric {
+        background: linear-gradient(135deg, rgba(0, 217, 255, 0.1) 0%, rgba(0, 217, 255, 0.05) 100%);
+        border: 1px solid rgba(0, 217, 255, 0.2);
+        border-radius: 12px;
+        padding: 20px;
+    }
+    
+    .stButton > button {
+        background: linear-gradient(135deg, #00d9ff 0%, #0099cc 100%);
+        color: #0f1419;
+        font-weight: bold;
+        border: none;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        box-shadow: 0 0 20px rgba(0, 217, 255, 0.5);
+    }
+    
+    .premium-header {
+        background: linear-gradient(90deg, #00d9ff 0%, #0099cc 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-size: 2.5em;
+        font-weight: bold;
+        margin-bottom: 20px;
+    }
+    
+    .status-card {
+        background: linear-gradient(135deg, rgba(0, 217, 255, 0.15) 0%, rgba(255, 51, 102, 0.05) 100%);
+        border: 1px solid rgba(0, 217, 255, 0.2);
+        border-radius: 12px;
+        padding: 20px;
+        margin: 10px 0;
+    }
+    
+    .alert-card {
+        background: rgba(255, 51, 102, 0.1);
+        border: 1px solid rgba(255, 51, 102, 0.3);
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+# Initialize Database
+DB_PATH = "sqlite:///alerts.db"
+create_db(DB_PATH)
+
+# Constants
 DATA_FILE = "data/final_project_data.csv"
 ALERTS_FILE = "alerts.csv"
 REPORT_FILE = "Security_Report.txt"
-DB_PATH = "sqlite:///alerts.db"
 
-create_db(DB_PATH)
 
+@st.cache_data
 def load_csv(file_path: str) -> pd.DataFrame | None:
+    """Load CSV with caching."""
     if os.path.exists(file_path):
         return pd.read_csv(file_path)
     return None
 
+
 def get_db_session():
+    """Get database session."""
     return get_session(DB_PATH)
 
-# SIDEBAR
-st.sidebar.markdown("🛡️ **NetPulse Command**")
-st.sidebar.subheader("System Actions")
 
-env_token = os.getenv("DASHBOARD_TOKEN")
-if env_token:
-    if "authenticated" not in st.session_state:
-        st.session_state["authenticated"] = False
+# SIDEBAR - Premium Style
+with st.sidebar:
+    st.markdown("## ⚡ NetPulse Premium")
+    st.markdown("---")
 
-    if not st.session_state.get("authenticated"):
-        token_input = st.sidebar.text_input("Enter dashboard token", type="password")
-        if st.sidebar.button("Login"):
-            if token_input == env_token:
-                st.session_state["authenticated"] = True
-                st.sidebar.success("Authenticated")
-            else:
-                st.sidebar.error("Invalid token")
-        st.sidebar.warning("This dashboard is protected. Please log in.")
-        st.stop()
-    else:
-        if st.sidebar.button("Logout"):
-            st.session_state["authenticated"] = False
-            st.rerun()
-else:
-    st.sidebar.info("No DASHBOARD_TOKEN set — dev mode.")
+    # Authentication
+    env_token = os.getenv("DASHBOARD_TOKEN")
+    if env_token:
+        if "auth_token" not in st.session_state:
+            st.session_state["auth_token"] = False
 
-if st.sidebar.button("🚀 1. Run Network Analysis"):
-    with st.spinner("Analyzing traffic..."):
-        try:
-            raw_data = pd.read_csv(DATA_FILE)
-            detector = NetworkAnomalyDetector(contamination=0.05, persist_to_db=True, db_path=DB_PATH)
-            results = detector.analyze(raw_data)
-            alerts_df = results[results["is_anomaly"]].copy()
-            alerts_df.to_csv(ALERTS_FILE, index=False)
-            st.sidebar.success("✓ Detection complete!")
-            st.cache_data.clear()
-        except Exception as exc:
-            st.sidebar.error(f"Error: {exc}")
-
-if st.sidebar.button("🤖 2. Generate AI Advice"):
-    session = get_db_session()
-    if session is None:
-        st.sidebar.warning("Run analysis first.")
-    else:
-        alerts_without_advice = session.query(Alert).filter(Alert.advice.is_(None)).all()
-        if not alerts_without_advice:
-            st.sidebar.warning("No pending alerts.")
+        if not st.session_state.get("auth_token"):
+            token = st.text_input("🔐 Dashboard Token", type="password", placeholder="Enter token...")
+            if st.button("Login", use_container_width=True):
+                if token == env_token:
+                    st.session_state["auth_token"] = True
+                    st.success("Authenticated!")
+                    st.rerun()
+                else:
+                    st.error("Invalid token")
+            st.stop()
         else:
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-            try:
-                from redis import Redis
-                from rq import Queue
+            st.success("✅ Authenticated")
 
-                redis_conn = Redis.from_url(redis_url)
-                queue = Queue("advisor", connection=redis_conn)
+    # System Actions
+    st.markdown("### 🚀 System Actions")
 
-                enqueued = 0
-                for alert in alerts_without_advice:
-                    job = queue.enqueue("tasks.generate_advice_for_alert", alert.id, DB_PATH)
-                    alert.advice_job_id = job.id
-                    alert.advice_status = "queued"
-                    session.add(AuditLog(alert_id=alert.id, action="advice_enqueued", actor="dashboard", note=job.id))
-                    enqueued += 1
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("▶️ Analyze", use_container_width=True):
+            with st.spinner("Running anomaly detection..."):
+                try:
+                    raw_data = pd.read_csv(DATA_FILE)
+                    detector = NetworkAnomalyDetector(contamination=0.05, persist_to_db=True, db_path=DB_PATH)
+                    results = detector.analyze(raw_data)
+                    alerts_df = results[results["is_anomaly"]].copy()
+                    alerts_df.to_csv(ALERTS_FILE, index=False)
+                    st.success("✓ Detection complete")
+                    st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"Error: {str(e)[:50]}")
 
-                session.commit()
-                st.sidebar.success(f"✓ Enqueued {enqueued} jobs")
-            except Exception:
-                with st.spinner("Generating advice synchronously..."):
+    with col_b:
+        if st.button("🤖 Advise", use_container_width=True):
+            session = get_db_session()
+            if session:
+                pending = session.query(Alert).filter(Alert.advice.is_(None)).all()
+                if pending:
+                    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
                     try:
+                        from redis import Redis
+                        from rq import Queue
+
+                        redis_conn = Redis.from_url(redis_url)
+                        queue = Queue("advisor", connection=redis_conn)
+                        for alert in pending:
+                            queue.enqueue("tasks.generate_advice_for_alert", alert.id, DB_PATH)
+                        st.success(f"✓ Queued {len(pending)} jobs")
+                    except Exception:
                         from tasks import generate_advice_for_alert
-                        processed = 0
-                        for alert in alerts_without_advice:
+
+                        for alert in pending:
                             generate_advice_for_alert(alert.id, DB_PATH)
-                            processed += 1
-                        st.sidebar.success(f"✓ Generated advice for {processed} alerts (sync)")
-                    except Exception as exc:
-                        st.sidebar.error(f"Error: {exc}")
+                        st.success(f"✓ Generated {len(pending)} advices")
+                    st.cache_data.clear()
+                else:
+                    st.info("No pending alerts")
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Navigation")
+    st.markdown("---")
 
-pages = ["Overview", "EDA & Insights", "Detected Alerts", "Security Report", "Audit Logs", "System Status", "Control Panel"]
-page = st.sidebar.radio("Select page", pages)
+    # Page Navigation
+    st.markdown("### 📄 Navigation")
+    page = st.radio(
+        "Select page",
+        ["Dashboard", "Alerts", "Analysis", "Report", "Logs", "System", "Control"],
+        label_visibility="collapsed",
+    )
 
-# LOAD DATA
+    st.markdown("---")
+    st.caption("🔬 Real-time Anomaly Detection Engine")
+
+
+# MAIN CONTENT
 data = load_csv(DATA_FILE)
 session = get_db_session()
-alerts = None
-if session is not None:
-    alerts_query = session.query(Alert).order_by(Alert.created_at.desc())
-    alerts = pd.read_sql(alerts_query.statement, alerts_query.session.bind)
+alerts_data = None
 
-st.title("🛡️ NetPulse-Shield Dashboard")
-st.caption("Local network anomaly detection and remediation dashboard")
+if session:
+    try:
+        alerts_query = session.query(Alert).order_by(Alert.created_at.desc())
+        alerts_data = pd.read_sql(alerts_query.statement, alerts_query.session.bind)
+    except Exception:
+        alerts_data = None
 
-if page == "Overview":
-    st.header("📊 Network Overview")
+# PAGE ROUTING
+if page == "Dashboard":
+    st.markdown('<div class="premium-header">Network Intelligence Dashboard</div>', unsafe_allow_html=True)
+
     if data is not None:
-        total_records = len(data)
-        total_alerts = len(alerts) if alerts is not None else 0
+        total_flows = len(data)
+        total_alerts = len(alerts_data) if alerts_data is not None else 0
+        health = "CRITICAL" if total_alerts > 1000 else "OPERATIONAL"
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Flows", total_records)
-        col2.metric("AI Alerts", total_alerts, delta=total_alerts, delta_color="inverse")
-        col3.metric("System State", "Operational" if total_alerts < 3000 else "Critical")
+        # KPI Cards
+        col1, col2, col3, col4 = st.columns(4)
 
-        fig = px.pie(
-            names=["Normal", "Anomaly"],
-            values=[total_records - total_alerts, total_alerts],
-            color_discrete_sequence=["#00ff00", "#ff4444"],
-            hole=0.4,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        col1.metric("📊 Total Flows", f"{total_flows:,}")
+        col2.metric("⚠️ Anomalies", f"{total_alerts:,}", delta=total_alerts if total_alerts > 0 else None)
+        col3.metric("🛡️ Severity", "HIGH" if total_alerts > 500 else "LOW")
+        col4.metric("💓 System", health, delta_color="inverse" if health == "CRITICAL" else "normal")
+
+        st.divider()
+
+        # Charts
+        col_left, col_right = st.columns(2)
+
+        with col_left:
+            st.subheader("Distribution")
+            if total_alerts > 0:
+                fig_pie = px.pie(
+                    names=["Normal", "Anomaly"],
+                    values=[total_flows - total_alerts, total_alerts],
+                    color_discrete_sequence=["#00ff88", "#ff3366"],
+                )
+                fig_pie.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font={"color": "#e0e0e0"},
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("No anomalies detected yet")
+
+        with col_right:
+            st.subheader("Timeline")
+            if alerts_data is not None and len(alerts_data) > 0:
+                alerts_data["created_at"] = pd.to_datetime(alerts_data["created_at"])
+                timeline = alerts_data.groupby(alerts_data["created_at"].dt.date).size()
+                fig_line = go.Figure(
+                    data=[
+                        go.Scatter(
+                            x=timeline.index,
+                            y=timeline.values,
+                            mode="lines+markers",
+                            line={"color": "#00d9ff", "width": 3},
+                            fill="tozeroy",
+                            fillcolor="rgba(0, 217, 255, 0.1)",
+                        )
+                    ]
+                )
+                fig_line.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font={"color": "#e0e0e0"},
+                    showlegend=False,
+                    xaxis_title="Date",
+                    yaxis_title="Anomalies",
+                )
+                st.plotly_chart(fig_line, use_container_width=True)
     else:
-        st.info("Welcome. Run the analysis to get started.")
+        st.warning("📂 No data loaded. Run analysis first.")
 
-elif page == "EDA & Insights":
-    st.header("🔍 EDA & Insights")
-    if data is not None and alerts is not None:
+elif page == "Alerts":
+    st.markdown('<div class="premium-header">Alert Triage</div>', unsafe_allow_html=True)
+
+    if alerts_data is not None and len(alerts_data) > 0:
+        st.info(f"📍 Showing top 15 of {len(alerts_data)} alerts")
+
+        for idx, row in alerts_data.head(15).iterrows():
+            col_exp, col_score = st.columns([3, 1])
+            with col_exp:
+                with st.expander(f"Alert #{row.get('id', '?')} | {row.get('created_at', 'N/A')}"):
+                    col_1, col_2 = st.columns(2)
+                    with col_1:
+                        st.write(f"**Score:** {row.get('anomaly_score', 'N/A')}")
+                        st.write(f"**Status:** {row.get('status', 'new')}")
+                        st.write(f"**Severity:** {row.get('severity', 'unknown')}")
+                    with col_2:
+                        if row.get("advice"):
+                            st.write(f"**Advice:** {row['advice'][:80]}...")
+                        else:
+                            st.write("**Advice:** Pending")
+
+                    # Status Update
+                    new_status = st.selectbox(
+                        "Update Status",
+                        ["new", "investigating", "resolved", "false_positive"],
+                        index=["new", "investigating", "resolved", "false_positive"].index(row.get("status", "new")),
+                        key=f"status_{row.get('id', 0)}",
+                    )
+
+                    if st.button("💾 Save", key=f"save_{row.get('id', 0)}"):
+                        session.query(Alert).filter(Alert.id == int(row["id"])).update({"status": new_status})
+                        session.add(
+                            AuditLog(alert_id=int(row["id"]), action="status_update", actor="premium_dashboard", note=new_status)
+                        )
+                        session.commit()
+                        st.success("Updated!")
+
+            with col_score:
+                score = float(row.get("anomaly_score", 0))
+                if score > 0.8:
+                    st.error(f"🔴 {score:.2f}")
+                elif score > 0.5:
+                    st.warning(f"🟡 {score:.2f}")
+                else:
+                    st.success(f"🟢 {score:.2f}")
+    else:
+        st.info("No alerts available")
+
+elif page == "Analysis":
+    st.markdown('<div class="premium-header">Exploratory Data Analysis</div>', unsafe_allow_html=True)
+
+    if data is not None and alerts_data is not None:
         data_viz = data.copy()
         data_viz["Status"] = "Normal"
-        try:
-            data_viz.loc[data_viz.index.isin(alerts.index), "Status"] = "Anomaly"
-        except Exception:
-            pass
 
         col_a, col_b = st.columns(2)
 
         with col_a:
-            st.subheader("📈 Sload Distribution")
+            st.subheader("Load Distribution")
             if "Sload" in data_viz.columns:
                 fig_hist = px.histogram(
                     data_viz,
                     x="Sload",
-                    color="Status",
-                    marginal="box",
-                    barmode="overlay",
-                    color_discrete_map={"Normal": "#00ff00", "Anomaly": "#ff4444"},
+                    nbins=50,
+                    color_discrete_sequence=["#00d9ff"],
                 )
+                fig_hist.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font={"color": "#e0e0e0"})
                 st.plotly_chart(fig_hist, use_container_width=True)
 
         with col_b:
-            st.subheader("📍 Scatter Plot: Sload vs Dload")
+            st.subheader("Scatter Analysis")
             if "Sload" in data_viz.columns and "Dload" in data_viz.columns:
                 fig_scatter = px.scatter(
                     data_viz,
                     x="Sload",
                     y="Dload",
-                    color="Status",
-                    hover_data=["sttl", "sbytes"] if "sttl" in data_viz.columns else [],
-                    color_discrete_map={"Normal": "#00ff00", "Anomaly": "#ff4444"},
+                    color_discrete_sequence=["#00ff88"],
                     opacity=0.6,
+                )
+                fig_scatter.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", font={"color": "#e0e0e0"}
                 )
                 st.plotly_chart(fig_scatter, use_container_width=True)
     else:
-        st.warning("Run the analysis first to view the EDA section.")
+        st.warning("Run analysis first")
 
-elif page == "Detected Alerts":
-    st.header("🚨 Detected Alerts (Top 10)")
-    if alerts is not None and len(alerts) > 0:
-        st.error(f"Top 10 suspicious flows from {len(alerts)} anomalies.")
+elif page == "Report":
+    st.markdown('<div class="premium-header">Security Report</div>', unsafe_allow_html=True)
 
-        for _, row in alerts.head(10).iterrows():
-            with st.expander(f"Alert #{row.get('id', '?')} - Score {row.get('anomaly_score', 'N/A')}"):
-                col_info, col_job = st.columns(2)
-                with col_info:
-                    st.write(f"Created: {row.get('created_at', 'N/A')}")
-                    st.write(f"Score: {row.get('anomaly_score', 'N/A')}")
-                    st.write(f"Severity: {row.get('severity', 'N/A')}")
-                with col_job:
-                    st.write(f"Status: {row.get('status', 'new')}")
-                    if row.get('advice'):
-                        st.write(f"Advice: {row['advice'][:100]}...")
-
-                status_options = ["new", "investigating", "resolved", "false_positive"]
-                current_status = row.get("status", "new")
-                try:
-                    status_index = status_options.index(current_status)
-                except ValueError:
-                    status_index = 0
-
-                new_status = st.selectbox("Status", status_options, index=status_index, key=f"status_{row.get('id', 0)}")
-                if st.button("Update status", key=f"btn_{row.get('id', 0)}"):
-                    session.query(Alert).filter(Alert.id == int(row["id"])).update({"status": new_status})
-                    session.add(AuditLog(alert_id=int(row["id"]), action="status_update", actor="dashboard", note=new_status))
-                    session.commit()
-                    st.success("Status updated")
-    else:
-        st.info("No alerts available yet.")
-
-elif page == "Security Report":
-    st.header("🛡️ Security Report")
     if os.path.exists(REPORT_FILE):
         with open(REPORT_FILE, "r", encoding="utf-8") as f:
-            report_content = f.read()
+            content = f.read()
         st.markdown(
-            f'<div style="background-color: #1a1f3a; padding: 20px; border-radius: 10px; border: 1px solid #2d3561;"><pre>{report_content}</pre></div>',
+            f'<div class="status-card"><pre style="color: #00d9ff; font-family: monospace; white-space: pre-wrap;">{content}</pre></div>',
             unsafe_allow_html=True,
         )
     else:
-        st.info("Generate the report to view the latest remediation guidance.")
+        st.info("No report generated yet")
 
-elif page == "Audit Logs":
-    st.header("🧾 Audit Logs")
-    try:
-        session = get_db_session()
-        logs_query = session.query(AuditLog).order_by(AuditLog.timestamp.desc())
-        logs_df = pd.read_sql(logs_query.statement, logs_query.session.bind)
-        if logs_df is not None and len(logs_df) > 0:
-            st.dataframe(logs_df)
-            csv = logs_df.to_csv(index=False)
-            st.download_button("Download audit logs as CSV", csv, file_name="audit_logs.csv", mime="text/csv")
-        else:
-            st.info("No audit logs available yet.")
-    except Exception as exc:
-        st.error(f"Error loading audit logs: {exc}")
+elif page == "Logs":
+    st.markdown('<div class="premium-header">Audit Log</div>', unsafe_allow_html=True)
 
-elif page == "System Status":
-    st.header("🔧 System Status & Health")
+    session = get_db_session()
+    logs_query = session.query(AuditLog).order_by(AuditLog.timestamp.desc())
+    logs_df = pd.read_sql(logs_query.statement, logs_query.session.bind)
+
+    if logs_df is not None and len(logs_df) > 0:
+        st.dataframe(logs_df, use_container_width=True)
+        csv = logs_df.to_csv(index=False)
+        st.download_button("📥 Export Logs", csv, "audit_logs.csv", "text/csv")
+    else:
+        st.info("No logs available")
+
+elif page == "System":
+    st.markdown('<div class="premium-header">System Health</div>', unsafe_allow_html=True)
+
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("🔴 Redis Connection")
+    col_r, col_d = st.columns(2)
+
+    with col_r:
+        st.subheader("Redis Queue")
         redis_health = check_redis_health(redis_url)
         if redis_health.get("connected"):
-            st.success(f"✅ Connected to {redis_url}")
+            st.success("✅ Connected")
             queue_stats = get_queue_stats(redis_url)
             if "error" not in queue_stats:
                 st.metric("Queue Depth", queue_stats["queue_depth"])
-                st.metric("Jobs Started", queue_stats["jobs_started"])
-                st.metric("Jobs Finished", queue_stats["jobs_finished"])
-                st.metric("Jobs Failed", queue_stats["jobs_failed"])
-            else:
-                st.error(f"Error fetching stats: {queue_stats['error']}")
+                st.metric("Started", queue_stats["jobs_started"])
+                st.metric("Finished", queue_stats["jobs_finished"])
+                st.metric("Failed", queue_stats["jobs_failed"])
         else:
-            st.error(f"❌ Redis not available: {redis_health.get('error')}")
-            st.info("**To enable background jobs:**")
-            st.code("docker run -p 6379:6379 redis:7", language="bash")
+            st.error("❌ Offline")
+            st.code("docker run -p 6379:6379 redis:7")
 
-    with col2:
-        st.subheader("📊 Database")
-        session = get_db_session()
+    with col_d:
+        st.subheader("Database")
         alert_count = session.query(Alert).count()
         audit_count = session.query(AuditLog).count()
-        st.metric("Total Alerts", alert_count)
-        st.metric("Audit Log Entries", audit_count)
-
         advice_pending = session.query(Alert).filter(Alert.advice.is_(None)).count()
         advice_done = session.query(Alert).filter(Alert.advice.isnot(None)).count()
-        st.metric("Advice Pending", advice_pending)
-        st.metric("Advice Generated", advice_done)
 
-elif page == "Control Panel":
-    st.header("⚙️ Control Panel")
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        st.metric("Alerts", alert_count)
+        st.metric("Logs", audit_count)
+        st.metric("Pending Advice", advice_pending)
+        st.metric("Generated", advice_done)
 
-    st.subheader("Bulk Operations")
-    col1, col2 = st.columns(2)
+elif page == "Control":
+    st.markdown('<div class="premium-header">Control Panel</div>', unsafe_allow_html=True)
 
-    with col1:
-        st.markdown("### Generate Advice")
-        session = get_db_session()
-        pending_count = session.query(Alert).filter(Alert.advice.is_(None)).count()
-        st.info(f"Alerts pending advice: {pending_count}")
+    tab1, tab2 = st.tabs(["Bulk Actions", "Export"])
 
-        if st.button("🤖 Enqueue All Pending Advice", key="bulk_enqueue"):
+    with tab1:
+        st.subheader("Enqueue Advice")
+        pending = session.query(Alert).filter(Alert.advice.is_(None)).count()
+        st.info(f"Pending: {pending}")
+
+        if st.button("🚀 Enqueue All", use_container_width=True):
+            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
             try:
-                redis_health = check_redis_health(redis_url)
-                if redis_health.get("connected"):
-                    pending_alerts = session.query(Alert).filter(Alert.advice.is_(None)).all()
-                    alert_ids = [alert.id for alert in pending_alerts]
-                    if alert_ids:
-                        enqueued = bulk_enqueue_advice(alert_ids, DB_PATH, redis_url)
-                        st.success(f"✅ Enqueued {enqueued} advice jobs")
-                    else:
-                        st.info("No pending alerts to enqueue")
-                else:
-                    st.error(f"❌ Redis not available: {redis_health.get('error')}")
-            except Exception as exc:
-                st.error(f"Error: {exc}")
+                bulk_enqueue_advice(
+                    [a.id for a in session.query(Alert).filter(Alert.advice.is_(None)).all()], DB_PATH, redis_url
+                )
+                st.success(f"✓ Enqueued {pending}")
+            except Exception as e:
+                st.error(str(e)[:100])
 
-    with col2:
-        st.markdown("### Data Export")
-        session = get_db_session()
+    with tab2:
+        st.subheader("Data Export")
         alerts_df = pd.read_sql("SELECT * FROM alerts ORDER BY created_at DESC", session.bind)
         if not alerts_df.empty:
-            csv = alerts_df.to_csv(index=False)
-            st.download_button("📥 Download Alerts CSV", csv, file_name="alerts_export.csv", mime="text/csv")
+            st.download_button("📥 Alerts", alerts_df.to_csv(index=False), "alerts.csv")
 
         logs_df = pd.read_sql("SELECT * FROM audit_logs ORDER BY timestamp DESC", session.bind)
         if not logs_df.empty:
-            csv = logs_df.to_csv(index=False)
-            st.download_button("📥 Download Audit Logs CSV", csv, file_name="audit_logs_export.csv", mime="text/csv")
-
-    st.markdown("---")
-    st.subheader("Worker Commands")
-    st.info("To run background workers outside the dashboard, use these commands:")
-    st.code("rq worker advisor", language="bash")
-    st.markdown("**Or with Docker:**")
-    st.code("docker-compose up --build", language="bash")
+            st.download_button("📥 Logs", logs_df.to_csv(index=False), "logs.csv")
