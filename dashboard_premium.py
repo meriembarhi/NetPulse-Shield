@@ -7,7 +7,7 @@ import plotly.express as px
 import streamlit as st
 
 from db import Alert, AuditLog, create_db, get_session
-from system_utils import check_redis_health, get_queue_stats, get_job_status, bulk_enqueue_advice
+from system_utils import check_redis_health, get_queue_stats, bulk_enqueue_advice
 
 # Premium Dashboard - clean, modern, and professional layout
 st.set_page_config(page_title="NetPulse Shield — Control Center", page_icon="🛡️", layout="wide")
