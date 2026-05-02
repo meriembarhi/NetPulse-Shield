@@ -1,5 +1,49 @@
 # NetPulse-Shield
 
+Simple instructions to run NetPulse-Shield locally or with Docker.
+
+Quick start (dev)
+
+1. Create a virtualenv and install deps:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # or .\.venv\Scripts\Activate.ps1 on Windows
+pip install -r requirements.txt
+```
+
+2. Run the Streamlit dashboard:
+
+```bash
+streamlit run dashboard.py
+```
+
+3. Optional: start Redis for background jobs (RQ):
+
+```bash
+docker run -p 6379:6379 redis:7
+# In another shell, start worker
+rq worker advisor
+```
+
+Docker
+
+```bash
+docker-compose up --build
+```
+
+Tests
+
+```bash
+pytest -q
+```
+
+Notes
+
+- Configure `DASHBOARD_TOKEN` to enable a simple token login gate.
+- To generate AI advice in background, start Redis and the `worker` service.
+# NetPulse-Shield
+
 NetPulse-Shield is a Python-based network security framework that combines anomaly detection (Isolation Forest) with a Retrieval-Augmented Generation (RAG) pipeline for remediation guidance. The system is designed for local execution with no external API dependencies, making it suitable for air-gapped environments.
 
 **Core design:** Network traffic → anomaly detection → alerts → remediation advice → security report.

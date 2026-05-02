@@ -113,6 +113,57 @@ def test_detector_to_solver_pipeline(tmp_path, monkeypatch, capsys):
 **Tests & Safety**
 - Unit tests were not changed because the auth gate only activates when `DASHBOARD_TOKEN` is present; CI/test environments typically do not set this variable. Local verification: `ruff` and `pytest` passed after the change.
 
+### 10. Background Advisor Worker (RQ + Redis) — Implemented
+
+**What I added**
+- `tasks.py`: contains `generate_advice_for_alert(alert_id, db_path)` — a task function that loads a single alert, calls `NetworkSecurityAdvisor`, stores the returned advice in the DB, and writes an `AuditLog` record. The task is written so it can be called directly (synchronous) for testing, or enqueued via RQ.
+- `dashboard.py`: changed the `Generate AI Advice` action to enqueue advice jobs into the `advisor` RQ queue when `redis` is available. Each alert stores `advice_job_id` and `advice_status` on enqueue and an `audit_logs` record is added.
+- `db.py`: added two columns to `Alert` — `advice_job_id` and `advice_status` to track background job IDs and status.
+
+**Behavior & Implementation Details**
+
+- Enqueue flow: `dashboard.py` attempts to import `redis` and `rq`. If available, it connects to `REDIS_URL` (env, default `redis://localhost:6379/0`) and enqueues `tasks.generate_advice_for_alert(alert_id, db_path)`. The enqueuing call returns a `job.id` which is stored in `Alert.advice_job_id` and `advice_status` is set to `queued`.
+- Fallback flow: If Redis/RQ is not available, the dashboard falls back to calling `tasks.generate_advice_for_alert()` synchronously for each alert. This preserves behavior for environments without Redis (including CI and simple dev setups).
+- Worker contract: the worker process executes `tasks.generate_advice_for_alert` and writes advice and an `AuditLog` record with `actor='worker'`.
+
+**Why this matters**
+- Avoids blocking the Streamlit UI during long retrieval or LLM calls. Jobs can be retried, monitored, and scaled by running additional workers.
+- Improves robustness: if the advisor fails for an alert, it will fail the job but the UI remains responsive.
+
+**Operational notes**
+- Local quick start (no Docker): run Redis with `docker run -p 6379:6379 redis:7`, then start a worker: `rq worker advisor`.
+- Docker-compose: `docker-compose up --build` will start `redis`, `web` (dashboard) and `worker` services.
+
+**Tests & Validation**
+- `tasks.generate_advice_for_alert` is callable directly in tests without Redis, which allows unit tests to validate advice generation without queueing.
+- Local verification: `ruff` and `pytest` passed after adding tasks and enqueue logic.
+
+### 11. Dockerization — Implemented
+
+**Files added**
+- `Dockerfile` — builds a minimal image that runs `streamlit run dashboard.py`.
+- `docker-compose.yml` — defines `redis`, `web`, and `worker` services. `web` and `worker` use the same image and read `REDIS_URL` from environment.
+
+**How to run**
+- `docker-compose up --build` — builds and starts services. The dashboard will be available at `http://localhost:8501`.
+
+**Why this matters**
+- Makes it simple to run the full stack locally or on a demo server without manually installing Redis and Python dependencies.
+
+### 12. README Update — Implemented
+
+**What I changed**
+- Added `README.md` with a short, clear quick-start section covering:
+    - dev virtualenv setup
+    - running the dashboard
+    - starting Redis + worker for background jobs
+    - docker-compose usage
+    - how to run tests
+
+**Why this matters**
+- New contributors can get the project running in minutes. The README focuses on practical, runnable commands instead of architecture descriptions.
+
+
 **Location:** `preprocess()` and `analyze()` methods
 
 if df is None or len(df) == 0:

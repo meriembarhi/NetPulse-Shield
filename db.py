@@ -16,6 +16,8 @@ class Alert(Base):
     status = Column(String(20), default='new')
     feature_json = Column(Text)
     advice = Column(Text, nullable=True)
+    advice_job_id = Column(String(100), nullable=True)
+    advice_status = Column(String(20), nullable=True, default='pending')
 
 class AuditLog(Base):
     __tablename__ = 'audit_logs'

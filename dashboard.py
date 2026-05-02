@@ -4,8 +4,6 @@ import streamlit as st
 import plotly.express as px
 from detector import NetworkAnomalyDetector
 from db import get_session, create_db, Alert, AuditLog
-from advisor import NetworkSecurityAdvisor
-import json
 
 # =========================
 # Page Configuration
@@ -89,24 +87,40 @@ if st.sidebar.button("🤖 2. Generate AI Advice"):
         st.sidebar.warning("Veuillez d'abord lancer l'analyse.")
     else:
         alerts = session.query(Alert).filter(Alert.advice.is_(None)).all()
-        if alerts:
-            with st.spinner("Génération de conseils IA..."):
-                advisor = NetworkSecurityAdvisor()
-                for a in alerts:
-                    # Build a short description from features
-                    try:
-                        features = json.loads(a.feature_json)
-                        description = f"Anomalous flow - score={a.anomaly_score} features={list(features.keys())}"
-                    except Exception:
-                        description = f"Anomalous flow - score={a.anomaly_score}"
-
-                    advice = advisor.get_remediation_advice(description)
-                    a.advice = advice
-                    session.add(AuditLog(alert_id=a.id, action='advice_generated', actor='dashboard'))
-                session.commit()
-                st.sidebar.success("Rapport IA généré et stocké !")
-        else:
+        if not alerts:
             st.sidebar.warning("Aucune alerte sans conseil à traiter.")
+        else:
+            # Try to enqueue tasks with RQ/Redis. If not available, fall back to synchronous generation.
+            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+            try:
+                from redis import Redis
+                from rq import Queue
+
+                redis_conn = Redis.from_url(redis_url)
+                q = Queue('advisor', connection=redis_conn)
+
+                enqueued = 0
+                for a in alerts:
+                    job = q.enqueue('tasks.generate_advice_for_alert', a.id, DB_PATH)
+                    a.advice_job_id = job.id
+                    a.advice_status = 'queued'
+                    session.add(AuditLog(alert_id=a.id, action='advice_enqueued', actor='dashboard', note=job.id))
+                    enqueued += 1
+                session.commit()
+                st.sidebar.success(f"Enqueued {enqueued} advice jobs (Redis at {redis_url}).")
+
+            except Exception:
+                # Fallback: run synchronously (keeps behavior if Redis not available)
+                with st.spinner("Génération synchrone de conseils IA (Redis absent)..."):
+                    try:
+                        from tasks import generate_advice_for_alert
+                        processed = 0
+                        for a in alerts:
+                            generate_advice_for_alert(a.id, DB_PATH)
+                            processed += 1
+                        st.sidebar.success(f"Generated advice for {processed} alerts (sync fallback).")
+                    except Exception as e:
+                        st.sidebar.error(f"Erreur génération conseils: {e}")
 
 st.sidebar.markdown("---")
 page = st.sidebar.radio("Navigation", ["Overview", "EDA & Insights", "Detected Alerts", "Security Report", "Audit Logs"])
