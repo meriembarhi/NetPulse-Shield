@@ -2,10 +2,6 @@
 detector.py - Network Anomaly Detector for NetPulse-Shield
 Version : Expertise RST & Évaluation de Performance
 """
-"""
-detector.py - Network Anomaly Detector for NetPulse-Shield
-Version : Expertise RST & Évaluation de Performance
-"""
 import os
 import joblib
 import numpy as np
