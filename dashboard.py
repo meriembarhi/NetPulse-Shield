@@ -86,7 +86,7 @@ if st.sidebar.button("🤖 2. Generate AI Advice"):
             st.sidebar.warning("Aucune alerte sans conseil à traiter.")
 
 st.sidebar.markdown("---")
-page = st.sidebar.radio("Navigation", ["Overview", "EDA & Insights", "Detected Alerts", "Security Report"])
+page = st.sidebar.radio("Navigation", ["Overview", "EDA & Insights", "Detected Alerts", "Security Report", "Audit Logs"])
 
 # Load Data
 data = load_csv(DATA_FILE)
@@ -174,3 +174,18 @@ elif page == "Security Report":
         st.markdown(f'<div style="background-color: #161b22; padding: 20px; border-radius: 10px; border: 1px solid #30363d;">{report_content}</div>', unsafe_allow_html=True)
     else:
         st.info("Générez le rapport IA pour voir les conseils de Llama 3.")
+
+elif page == "Audit Logs":
+    st.header("🧾 Audit Logs")
+    try:
+        session = get_session(DB_PATH)
+        logs_query = session.query(AuditLog).order_by(AuditLog.timestamp.desc())
+        logs_df = pd.read_sql(logs_query.statement, logs_query.session.bind)
+        if logs_df is not None and len(logs_df) > 0:
+            st.dataframe(logs_df)
+            csv = logs_df.to_csv(index=False)
+            st.download_button("Download audit logs as CSV", csv, file_name="audit_logs.csv", mime="text/csv")
+        else:
+            st.info("No audit logs available yet.")
+    except Exception as e:
+        st.error(f"Error loading audit logs: {e}")

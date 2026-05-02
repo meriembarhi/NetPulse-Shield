@@ -427,6 +427,7 @@ The project is now suitable for internal testing and demonstration. For producti
 
 **Next recommendations**
 - Add a simple UI audit viewer page to show `audit_logs` and export CSVs for compliance.
+- **Implemented:** Added an `Audit Logs` page to the dashboard that displays recent `audit_logs` and allows exporting them as CSV. This page helps analysts review triage actions and advice generation history.
 - Add role-based authentication around triage actions (even simple token-based or Streamlit sharing).
 - Add background worker for heavy advisor calls to keep UI responsive.
 
