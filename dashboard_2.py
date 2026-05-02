@@ -9,237 +9,378 @@ import streamlit as st
 from db import Alert, AuditLog, create_db, get_session
 from system_utils import check_redis_health, get_queue_stats, bulk_enqueue_advice
 
-# ── Page config ────────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+#  PAGE CONFIG
+# ═══════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="NetPulse Shield — Control Center",
+    page_title="NetPulse Shield",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Global paths ────────────────────────────────────────────────────────────────
-DATA_FILE  = "data/final_project_data.csv"
+DATA_FILE   = "data/final_project_data.csv"
 REPORT_FILE = "Security_Report.txt"
-DB_PATH    = os.getenv("DATABASE_URL", "sqlite:///alerts.db")
-REDIS_URL  = os.getenv("REDIS_URL",    "redis://localhost:6379/0")
+DB_PATH     = os.getenv("DATABASE_URL", "sqlite:///alerts.db")
+REDIS_URL   = os.getenv("REDIS_URL",    "redis://localhost:6379/0")
 
 create_db(DB_PATH)
 
-# ── Premium CSS ─────────────────────────────────────────────────────────────────
-st.markdown(
-    """
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+# ═══════════════════════════════════════════════════════════════
+#  GLOBAL CSS  — Palantir / Foundry aesthetic
+# ═══════════════════════════════════════════════════════════════
+st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 
-    <style>
-    /* ── Root variables ─────────────────────────────────── */
-    :root {
-        --bg-primary:   #080D14;
-        --bg-secondary: #0D1520;
-        --bg-card:      rgba(255,255,255,0.035);
-        --border:       rgba(0,242,255,0.12);
-        --border-hover: rgba(0,242,255,0.35);
-        --cyan:         #00F2FF;
-        --cyan-dim:     rgba(0,242,255,0.15);
-        --cyan-glow:    rgba(0,242,255,0.25);
-        --red:          #FF4B4B;
-        --red-dim:      rgba(255,75,75,0.15);
-        --amber:        #FFB347;
-        --amber-dim:    rgba(255,179,71,0.15);
-        --green:        #00E676;
-        --green-dim:    rgba(0,230,118,0.15);
-        --text-primary: #E8EDF5;
-        --text-muted:   rgba(232,237,245,0.45);
-        --text-subtle:  rgba(232,237,245,0.25);
-        --radius:       12px;
-        --radius-sm:    8px;
-        --font-body:    'DM Sans', sans-serif;
-        --font-mono:    'Space Mono', monospace;
-    }
+<style>
+:root {
+  --c-bg:            #05080D;
+  --c-surface:       #090D15;
+  --c-panel:         #0C1118;
+  --c-border:        #1A2535;
+  --c-border-hot:    #1E4976;
+  --c-accent:        #1D72AA;
+  --c-accent-bright: #2A9FD6;
+  --c-accent-glow:   rgba(29,114,170,0.18);
+  --c-danger:        #C0392B;
+  --c-warn:          #E67E22;
+  --c-ok:            #27AE60;
+  --c-text:          #C8D6E5;
+  --c-text-dim:      #5A7A9A;
+  --c-text-faint:    #1A2535;
+  --font-mono:       'IBM Plex Mono', monospace;
+  --font-sans:       'IBM Plex Sans', sans-serif;
+  --r: 4px;
+}
 
-    /* ── Global reset ───────────────────────────────────── */
-    html, body, [class*="css"] {
-        font-family: var(--font-body);
-        color: var(--text-primary);
-    }
-    .stApp {
-        background: var(--bg-primary);
-        background-image:
-            radial-gradient(ellipse 80% 50% at 50% -20%, rgba(0,242,255,0.06) 0%, transparent 60%),
-            radial-gradient(ellipse 40% 30% at 85% 10%, rgba(0,100,255,0.05) 0%, transparent 50%);
-    }
+html, body, [class*="css"], .stApp {
+  font-family: var(--font-sans) !important;
+  background-color: var(--c-bg) !important;
+  color: var(--c-text) !important;
+}
 
-    /* ── Sidebar glass ──────────────────────────────────── */
-    [data-testid="stSidebar"] {
-        background: rgba(13,21,32,0.85) !important;
-        backdrop-filter: blur(20px) !important;
-        border-right: 1px solid var(--border) !important;
-    }
-    [data-testid="stSidebar"] * { font-family: var(--font-body); }
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3 {
-        color: var(--cyan) !important;
-        font-family: var(--font-mono) !important;
-        font-size: 0.75rem !important;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-    }
+/* Scanline overlay */
+.stApp::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background-image: repeating-linear-gradient(
+    0deg, transparent, transparent 3px,
+    rgba(0,0,0,0.055) 3px, rgba(0,0,0,0.055) 4px
+  );
+}
 
-    /* ── Main content padding ────────────────────────────── */
-    .block-container {
-        padding: 2rem 2.5rem 4rem !important;
-        max-width: 1600px;
-    }
+/* Animated top bar sweep */
+.stApp::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%, var(--c-accent) 40%,
+    var(--c-accent-bright) 50%, var(--c-accent) 60%, transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: np-sweep 4s linear infinite;
+  z-index: 10000;
+}
+@keyframes np-sweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 
-    /* ── Typography ──────────────────────────────────────── */
-    h1 { font-size: 1.65rem !important; font-weight: 700 !important; letter-spacing: -0.02em; }
-    h2, h3 { font-weight: 600 !important; letter-spacing: -0.01em; }
+[data-testid="stSidebar"] {
+  background: var(--c-surface) !important;
+  border-right: 1px solid var(--c-border) !important;
+}
+[data-testid="stSidebar"] > div:first-child { padding-top: 0 !important; }
 
-    /* ── Divider ─────────────────────────────────────────── */
-    hr {
-        border: none !important;
-        border-top: 1px solid var(--border) !important;
-        margin: 1.5rem 0 !important;
-    }
+.block-container {
+  padding: 1.5rem 2.2rem 4rem !important;
+  max-width: 1700px !important;
+}
 
-    /* ── Buttons ─────────────────────────────────────────── */
-    .stButton > button {
-        background: var(--cyan-dim) !important;
-        border: 1px solid var(--border) !important;
-        color: var(--cyan) !important;
-        border-radius: var(--radius-sm) !important;
-        font-family: var(--font-body) !important;
-        font-weight: 600 !important;
-        font-size: 0.85rem !important;
-        padding: 0.5rem 1.1rem !important;
-        transition: all 0.2s ease !important;
-        letter-spacing: 0.01em;
-    }
-    .stButton > button:hover {
-        background: rgba(0,242,255,0.22) !important;
-        border-color: var(--border-hover) !important;
-        box-shadow: 0 0 16px var(--cyan-glow) !important;
-        transform: translateY(-1px) !important;
-    }
+#MainMenu, footer, header { visibility: hidden; }
+[data-testid="stToolbar"] { display: none; }
 
-    /* ── Inputs ──────────────────────────────────────────── */
-    .stTextInput > div > div > input,
-    .stSelectSlider > div,
-    .stSlider > div {
-        background: var(--bg-card) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: var(--radius-sm) !important;
-        color: var(--text-primary) !important;
-    }
+hr {
+  border: none !important;
+  border-top: 1px solid var(--c-border) !important;
+  margin: 1.2rem 0 !important;
+}
 
-    /* ── DataFrame ───────────────────────────────────────── */
-    .stDataFrame {
-        border: 1px solid var(--border) !important;
-        border-radius: var(--radius) !important;
-        overflow: hidden;
-    }
-    [data-testid="stDataFrame"] > div {
-        border-radius: var(--radius) !important;
-    }
+.stButton > button {
+  font-family: var(--font-mono) !important;
+  font-size: 0.70rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  color: var(--c-accent-bright) !important;
+  background: transparent !important;
+  border: 1px solid var(--c-border-hot) !important;
+  border-radius: var(--r) !important;
+  padding: 0.45rem 1.1rem !important;
+  transition: all 0.15s ease !important;
+}
+.stButton > button:hover {
+  background: var(--c-accent-glow) !important;
+  border-color: var(--c-accent-bright) !important;
+  color: #fff !important;
+  box-shadow: 0 0 14px rgba(42,159,214,0.22) !important;
+}
 
-    /* ── Info / success / error boxes ───────────────────── */
-    .stAlert {
-        border-radius: var(--radius-sm) !important;
-        font-size: 0.85rem !important;
-    }
+.stTextInput input {
+  font-family: var(--font-mono) !important;
+  font-size: 0.78rem !important;
+  background: var(--c-panel) !important;
+  border: 1px solid var(--c-border) !important;
+  border-radius: var(--r) !important;
+  color: var(--c-text) !important;
+}
+.stTextInput input:focus {
+  border-color: var(--c-accent) !important;
+  box-shadow: 0 0 0 3px rgba(29,114,170,0.14) !important;
+}
 
-    /* ── Metric widget ───────────────────────────────────── */
-    [data-testid="stMetric"] {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 1rem 1.2rem;
-    }
+.stDataFrame, [data-testid="stDataFrame"] {
+  border: 1px solid var(--c-border) !important;
+  border-radius: var(--r) !important;
+}
 
-    /* ── Plotly chart containers ─────────────────────────── */
-    .js-plotly-plot .plotly { border-radius: var(--radius); }
+.stAlert { border-radius: var(--r) !important; font-family: var(--font-mono) !important; font-size: 0.74rem !important; }
 
-    /* ── Scrollbar ───────────────────────────────────────── */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg-primary); }
-    ::-webkit-scrollbar-thumb { background: rgba(0,242,255,0.2); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(0,242,255,0.4); }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+[data-testid="stMetric"] {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 0.75rem 1rem;
+}
+[data-testid="stMetricValue"] { font-family: var(--font-mono) !important; color: var(--c-accent-bright) !important; }
 
-# ── Helper: KPI card HTML ────────────────────────────────────────────────────────
-def kpi_card(icon_svg, label, value, accent="#00F2FF", accent_bg="rgba(0,242,255,0.10)"):
-    return f"""
-    <div style="
-        background: rgba(255,255,255,0.030);
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 12px;
-        padding: 18px 20px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        transition: border-color 0.2s;
-        height: 100%;
-    ">
-        <div style="
-            width: 44px; height: 44px; flex-shrink: 0;
-            background: {accent_bg};
-            border-radius: 10px;
-            display: flex; align-items: center; justify-content: center;
-        ">
-            {icon_svg}
-        </div>
-        <div>
-            <div style="font-size:0.72rem; color:rgba(232,237,245,0.45); letter-spacing:0.1em; text-transform:uppercase; font-weight:500; margin-bottom:4px;">{label}</div>
-            <div style="font-size:1.55rem; font-weight:700; color:{accent}; font-family:'DM Sans',sans-serif; line-height:1;">{value}</div>
-        </div>
-    </div>
-    """
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--c-bg); }
+::-webkit-scrollbar-thumb { background: #1E3A5A; border-radius: 2px; }
 
-# ── SVG icons ─────────────────────────────────────────────────────────────────
-ICON_FLOWS = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00F2FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'
-ICON_ALERT = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF4B4B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
-ICON_CLOCK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFB347" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
-ICON_CHECK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+/* ── Custom component styles ── */
+.np-logo {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--c-accent-bright);
+  padding: 18px 0 12px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 18px;
+}
+.np-logo span {
+  display: block;
+  font-size: 0.50rem;
+  letter-spacing: 0.28em;
+  color: var(--c-text-dim);
+  font-weight: 400;
+  margin-top: 4px;
+}
 
-# ── Plotly theme ──────────────────────────────────────────────────────────────
-PLOT_LAYOUT = dict(
+.np-title {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--c-text);
+  line-height: 1.3;
+}
+.np-title .acc { color: var(--c-accent-bright); }
+.np-subtitle {
+  font-family: var(--font-sans);
+  font-size: 0.76rem;
+  color: var(--c-text-dim);
+  margin-top: 4px;
+}
+
+.np-section {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--c-accent-bright);
+  border-bottom: 1px solid var(--c-border);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+  margin-top: 4px;
+}
+
+.np-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-text-dim);
+}
+
+.np-kpi {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 16px 18px 14px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.np-kpi::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+}
+.np-kpi.np-cyan::before  { background: var(--c-accent-bright); }
+.np-kpi.np-red::before   { background: var(--c-danger); }
+.np-kpi.np-amber::before { background: var(--c-warn); }
+.np-kpi.np-green::before { background: var(--c-ok); }
+.np-kpi:hover { border-color: var(--c-border-hot); box-shadow: 0 0 18px rgba(29,114,170,0.08); }
+
+.np-kpi-label {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-text-dim);
+  margin-bottom: 8px;
+}
+.np-kpi-value {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--c-text);
+}
+.np-kpi.np-cyan  .np-kpi-value { color: var(--c-accent-bright); }
+.np-kpi.np-red   .np-kpi-value { color: var(--c-danger); }
+.np-kpi.np-amber .np-kpi-value { color: var(--c-warn); }
+.np-kpi.np-green .np-kpi-value { color: var(--c-ok); }
+.np-kpi-sub {
+  font-family: var(--font-mono);
+  font-size: 0.60rem;
+  color: var(--c-text-faint);
+  margin-top: 6px;
+}
+
+@keyframes np-pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%     { opacity: 0.5; transform: scale(0.85); }
+}
+.np-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  animation: np-pulse 2s ease-in-out infinite;
+  position: relative; top: 1px;
+}
+.np-dot.g { background: var(--c-ok); }
+.np-dot.r { background: var(--c-danger); }
+.np-dot.a { background: var(--c-warn); }
+
+.np-status-row {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.70rem;
+  color: var(--c-text-dim);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--c-text-faint);
+}
+.np-status-row .v { color: var(--c-text); font-weight: 500; margin-left: auto; }
+
+.np-stat-panel {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 18px 20px;
+}
+.np-stat-panel h4 {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--c-accent-bright);
+  margin: 0 0 12px;
+}
+
+.np-empty {
+  border: 1px dashed var(--c-border);
+  border-radius: var(--r);
+  padding: 32px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--c-text-faint);
+  letter-spacing: 0.1em;
+}
+
+.np-report {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 0.70rem;
+  line-height: 1.9;
+  color: rgba(200,214,229,0.7);
+  white-space: pre-wrap;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+@keyframes np-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.np-cursor { animation: np-blink 1.1s step-end infinite; color: var(--c-accent-bright); }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  HELPERS
+# ═══════════════════════════════════════════════════════════════
+def kpi(cls, label, value, sub=""):
+    return (
+        f'<div class="np-kpi {cls}">'
+        f'<div class="np-kpi-label">{label}</div>'
+        f'<div class="np-kpi-value">{value}</div>'
+        + (f'<div class="np-kpi-sub">{sub}</div>' if sub else "")
+        + "</div>"
+    )
+
+def section(text):
+    st.markdown(f'<div class="np-section">// {text}</div>', unsafe_allow_html=True)
+
+def dot(color):
+    return f'<span class="np-dot {color}"></span>'
+
+PLOT_BASE = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="DM Sans, sans-serif", color="rgba(232,237,245,0.7)", size=12),
-    margin=dict(l=8, r=8, t=36, b=8),
-    xaxis=dict(
-        showgrid=False, zeroline=False,
-        linecolor="rgba(255,255,255,0.08)",
-        tickfont=dict(size=11),
-    ),
-    yaxis=dict(
-        showgrid=True, gridcolor="rgba(255,255,255,0.04)", zeroline=False,
-        tickfont=dict(size=11),
-    ),
-    legend=dict(
-        bgcolor="rgba(0,0,0,0)",
-        bordercolor="rgba(255,255,255,0.06)",
-        borderwidth=1,
-    ),
-    hoverlabel=dict(
-        bgcolor="#0D1520",
-        bordercolor="rgba(0,242,255,0.3)",
-        font=dict(family="DM Sans, sans-serif", color="#E8EDF5"),
-    ),
+    font=dict(family="IBM Plex Mono, monospace", color="#5A7A9A", size=10),
+    margin=dict(l=4, r=4, t=24, b=4),
+    xaxis=dict(showgrid=False, zeroline=False, linecolor="#1A2535",
+               tickfont=dict(size=10), tickcolor="#1A2535"),
+    yaxis=dict(showgrid=True, gridcolor="rgba(26,37,53,0.7)", zeroline=False,
+               tickfont=dict(size=10)),
+    hoverlabel=dict(bgcolor="#090D15", bordercolor="#1E4976",
+                    font=dict(family="IBM Plex Mono, monospace", color="#C8D6E5", size=11)),
 )
 
-# ── Utility ───────────────────────────────────────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════════
+#  DATA  (logic unchanged)
+# ═══════════════════════════════════════════════════════════════
 @st.cache_data(ttl=60)
 def load_data(path=DATA_FILE):
     if os.path.exists(path):
         return pd.read_csv(path)
     return pd.DataFrame()
-
 
 def load_alerts(session):
     try:
@@ -249,308 +390,261 @@ def load_alerts(session):
         return pd.DataFrame()
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+#  SIDEBAR
+# ═══════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown(
-        """
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.5rem;">
-            <span style="font-size:1.5rem;">🛡️</span>
-            <span style="font-family:'Space Mono',monospace;font-size:0.85rem;font-weight:700;
-                         color:#00F2FF;letter-spacing:0.04em;">NETPULSE<br>SHIELD</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <div class="np-logo">
+      NETPULSE SHIELD
+      <span>THREAT INTELLIGENCE PLATFORM</span>
+    </div>""", unsafe_allow_html=True)
 
     if os.getenv("DASHBOARD_TOKEN"):
-        token = st.text_input("Access token", type="password", placeholder="Enter token…")
+        token = st.text_input("ACCESS TOKEN", type="password", placeholder="••••••••")
         if token != os.getenv("DASHBOARD_TOKEN"):
-            st.error("Enter valid token to continue")
+            st.error("Unauthorized.")
             st.stop()
 
-    st.markdown("**ACTIONS**")
-    if st.button("⚡ Run Detection (sample)"):
-        st.info("Run the CLI pipeline or use `pipeline.py` for full runs.")
+    st.markdown('<div class="np-eyebrow" style="margin-bottom:8px;">Operations</div>', unsafe_allow_html=True)
+    if st.button("⚡  RUN DETECTION"):
+        st.info("Invoke pipeline.py for full analysis runs.")
 
     st.markdown("---")
-    st.caption("NetPulse Shield v2 · Premium")
+    now = datetime.now()
+    st.markdown(f"""
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:0.60rem;color:#1A2535;line-height:2.2;">
+      <div style="color:#5A7A9A;">SESSION · {now.strftime('%Y-%m-%d')}</div>
+      <div style="color:#2A3A4A;">{now.strftime('%H:%M:%S')} UTC</div>
+    </div>""", unsafe_allow_html=True)
 
 
-# ── Page header ───────────────────────────────────────────────────────────────
-col_title, col_ts = st.columns([5, 2])
-with col_title:
-    st.markdown("## 🛡️ NetPulse Shield — Control Center")
-    st.markdown(
-        "<p style='color:rgba(232,237,245,0.45);font-size:0.88rem;margin-top:-8px;'>"
-        "Real-time anomaly detection · Triage & remediation · AI-powered insights"
-        "</p>",
-        unsafe_allow_html=True,
-    )
-with col_ts:
-    st.markdown(
-        f"<div style='text-align:right;padding-top:8px;'>"
-        f"<span style='font-family:Space Mono,monospace;font-size:0.72rem;"
-        f"color:rgba(0,242,255,0.6);letter-spacing:0.06em;'>"
-        f"LAST REFRESH<br>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</span></div>",
-        unsafe_allow_html=True,
-    )
-
-st.markdown("---")
-
-# ── Load data ─────────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+#  LOAD DATA
+# ═══════════════════════════════════════════════════════════════
 data    = load_data()
 session = get_session(DB_PATH)
 alerts  = load_alerts(session) if session is not None else pd.DataFrame()
-
-# ── KPI row ───────────────────────────────────────────────────────────────────
-k1, k2, k3, k4 = st.columns(4)
 pending = int(alerts[alerts["advice"].isna()].shape[0]) if not alerts.empty else 0
+now     = datetime.now()
 
+
+# ═══════════════════════════════════════════════════════════════
+#  PAGE HEADER
+# ═══════════════════════════════════════════════════════════════
+h_l, h_r = st.columns([5, 2])
+with h_l:
+    st.markdown(f"""
+    <div class="np-title">
+      <span class="acc">▶</span> NETPULSE SHIELD
+      <span style="font-weight:300;color:#5A7A9A;font-size:0.82rem;"> / CONTROL CENTER</span>
+      <span class="np-cursor">_</span>
+    </div>
+    <div class="np-subtitle">Anomaly detection · AI triage · Real-time remediation intelligence</div>
+    """, unsafe_allow_html=True)
+with h_r:
+    st.markdown(f"""
+    <div style="text-align:right;font-family:'IBM Plex Mono',monospace;font-size:0.58rem;
+                color:#2A3A4A;line-height:2.2;padding-top:6px;">
+      <div style="color:#5A7A9A;letter-spacing:0.14em;">LAST REFRESH</div>
+      <div style="color:#C8D6E5;font-size:0.70rem;">{now.strftime('%Y-%m-%dT%H:%M:%S')}</div>
+    </div>""", unsafe_allow_html=True)
+
+st.markdown("---")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  KPI ROW
+# ═══════════════════════════════════════════════════════════════
+section("SYSTEM OVERVIEW")
+k1, k2, k3, k4 = st.columns(4)
 with k1:
-    st.markdown(
-        kpi_card(ICON_FLOWS, "Total Flows", f"{len(data):,}",
-                 accent="#00F2FF", accent_bg="rgba(0,242,255,0.10)"),
-        unsafe_allow_html=True,
-    )
+    st.markdown(kpi("np-cyan",  "TOTAL FLOWS",    f"{len(data):,}",  "captured packets"), unsafe_allow_html=True)
 with k2:
-    st.markdown(
-        kpi_card(ICON_ALERT, "Total Alerts", f"{len(alerts):,}",
-                 accent="#FF4B4B", accent_bg="rgba(255,75,75,0.10)"),
-        unsafe_allow_html=True,
-    )
+    st.markdown(kpi("np-red",   "TOTAL ALERTS",   f"{len(alerts):,}", "anomalies flagged"), unsafe_allow_html=True)
 with k3:
-    st.markdown(
-        kpi_card(ICON_CLOCK, "Advice Pending", f"{pending}",
-                 accent="#FFB347", accent_bg="rgba(255,179,71,0.10)"),
-        unsafe_allow_html=True,
-    )
+    st.markdown(kpi("np-amber", "ADVICE PENDING", str(pending),      "awaiting triage"),   unsafe_allow_html=True)
 with k4:
-    st.markdown(
-        kpi_card(ICON_CHECK, "Last Run", datetime.now().strftime("%H:%M:%S"),
-                 accent="#00E676", accent_bg="rgba(0,230,118,0.10)"),
-        unsafe_allow_html=True,
-    )
+    st.markdown(kpi("np-green", "LAST RUN",       now.strftime("%H:%M"), now.strftime("%Y-%m-%d")), unsafe_allow_html=True)
 
-st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='margin:1rem 0'></div>", unsafe_allow_html=True)
 st.markdown("---")
 
-# ── Filters ───────────────────────────────────────────────────────────────────
-st.markdown(
-    "<p style='font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;"
-    "color:rgba(0,242,255,0.6);font-weight:600;margin-bottom:8px;'>FILTERS</p>",
-    unsafe_allow_html=True,
-)
-f_col1, f_col2, f_col3, f_col4 = st.columns([2, 2, 2, 4])
-with f_col1:
-    severity = st.select_slider(
-        "Severity", options=["low", "medium", "high", "critical"], value=("low", "critical")
-    )
-with f_col2:
-    min_score = st.slider("Min anomaly score", 0.0, 1.0, 0.5)
-with f_col3:
+
+# ═══════════════════════════════════════════════════════════════
+#  FILTERS
+# ═══════════════════════════════════════════════════════════════
+section("FILTERS")
+f1, f2, f3, f4 = st.columns([2, 2, 2, 4])
+with f1:
+    severity   = st.select_slider("Severity", options=["low","medium","high","critical"], value=("low","critical"))
+with f2:
+    min_score  = st.slider("Min anomaly score", 0.0, 1.0, 0.5)
+with f3:
     date_range = st.date_input("Created between", [])
-with f_col4:
-    search = st.text_input("🔍  Search by IP / Flow ID / note", placeholder="e.g. 192.168.1.1")
+with f4:
+    search     = st.text_input("Search  ·  IP / Flow ID / note", placeholder="e.g. 192.168.1.100")
 
 st.markdown("---")
 
-# ── Charts ────────────────────────────────────────────────────────────────────
-chart_left, chart_right = st.columns([3, 2])
 
-with chart_left:
-    st.markdown("#### Alerts Over Time")
+# ═══════════════════════════════════════════════════════════════
+#  CHARTS
+# ═══════════════════════════════════════════════════════════════
+section("INTELLIGENCE VIEW")
+c_l, c_r = st.columns([3, 2])
+
+with c_l:
+    st.markdown('<div class="np-eyebrow" style="margin-bottom:6px;">Alert Volume · Daily</div>', unsafe_allow_html=True)
     if not alerts.empty:
         alerts["created_at"] = pd.to_datetime(alerts["created_at"])
-        series = (
-            alerts
-            .groupby(pd.Grouper(key="created_at", freq="D"))
-            .size()
-            .reset_index(name="count")
-        )
+        series = alerts.groupby(pd.Grouper(key="created_at", freq="D")).size().reset_index(name="count")
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=series["created_at"], y=series["count"],
-            mode="lines+markers",
-            line=dict(color="#00F2FF", width=2.5),
-            marker=dict(size=6, color="#00F2FF",
-                        line=dict(color="#080D14", width=2)),
-            fill="tozeroy",
-            fillcolor="rgba(0,242,255,0.06)",
-            hovertemplate="<b>%{x|%b %d}</b><br>Alerts: %{y}<extra></extra>",
+            mode="none", fill="tozeroy",
+            fillcolor="rgba(29,114,170,0.07)",
+            showlegend=False, hoverinfo="skip",
         ))
-        fig.update_layout(title="Daily Alert Volume", **PLOT_LAYOUT)
-        st.plotly_chart(fig, use_container_width=True)
+        fig.add_trace(go.Scatter(
+            x=series["created_at"], y=series["count"],
+            mode="lines+markers",
+            line=dict(color="#2A9FD6", width=2, shape="spline"),
+            marker=dict(size=5, color="#2A9FD6", line=dict(color="#05080D", width=2)),
+            fill="none", showlegend=False,
+            hovertemplate="<b>%{x|%b %d}</b><br>Alerts: <b>%{y}</b><extra></extra>",
+        ))
+        fig.update_layout(**PLOT_BASE)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     else:
-        st.markdown(
-            "<div style='background:rgba(255,255,255,0.03);border:1px dashed rgba(255,255,255,0.08);"
-            "border-radius:12px;padding:40px;text-align:center;"
-            "color:rgba(232,237,245,0.35);font-size:0.88rem;'>"
-            "No alert data · Run the pipeline to populate</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown('<div class="np-empty">NO ALERT DATA · RUN PIPELINE TO POPULATE</div>', unsafe_allow_html=True)
 
-with chart_right:
-    st.markdown("#### Feature Correlation")
-    if not data.empty:
+with c_r:
+    st.markdown('<div class="np-eyebrow" style="margin-bottom:6px;">Feature Distribution · Sload vs Dload</div>', unsafe_allow_html=True)
+    if not data.empty and "Sload" in data.columns and "Dload" in data.columns:
         sample = data.sample(min(2000, len(data)))
-        if "Sload" in sample.columns and "Dload" in sample.columns:
-            fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(
-                x=sample["Sload"], y=sample["Dload"],
-                mode="markers",
-                marker=dict(
-                    size=4,
-                    color=sample["Sload"],
-                    colorscale=[[0, "#00F2FF"], [0.5, "#0080FF"], [1, "#FF4B4B"]],
-                    opacity=0.55,
-                    showscale=False,
-                ),
-                hovertemplate="Sload: %{x:.2f}<br>Dload: %{y:.2f}<extra></extra>",
-            ))
-            fig2.update_layout(title="Sload vs Dload", **PLOT_LAYOUT)
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.info("Feature sample unavailable")
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(
+            x=sample["Sload"], y=sample["Dload"],
+            mode="markers",
+            marker=dict(size=3, color=sample["Sload"],
+                        colorscale=[[0,"#1A2535"],[0.4,"#1D72AA"],[0.75,"#2A9FD6"],[1,"#C0392B"]],
+                        opacity=0.6, showscale=False),
+            hovertemplate="Sload: %{x:.2f}<br>Dload: %{y:.2f}<extra></extra>",
+        ))
+        fig2.update_layout(**PLOT_BASE)
+        st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
     else:
-        st.info("No raw data loaded")
+        st.markdown('<div class="np-empty">NO FEATURE DATA · LOAD DATASET TO VIEW</div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
-# ── Alerts triage table ───────────────────────────────────────────────────────
-st.markdown("#### 🚨 Detected Alerts — Triage")
 
+# ═══════════════════════════════════════════════════════════════
+#  ALERTS TRIAGE
+# ═══════════════════════════════════════════════════════════════
+section("THREAT TRIAGE")
 if alerts.empty:
-    st.markdown(
-        "<div style='background:rgba(255,75,75,0.06);border:1px solid rgba(255,75,75,0.15);"
-        "border-radius:12px;padding:24px 28px;color:rgba(232,237,245,0.55);font-size:0.88rem;'>"
-        "No alerts in database. Run the analysis pipeline or import <code>alerts.csv</code>.</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="np-empty">NO ALERTS IN DATABASE · RUN ANALYSIS OR IMPORT alerts.csv</div>', unsafe_allow_html=True)
 else:
     display = alerts.copy()
-
     if search:
-        display = display[
-            display.apply(lambda r: search.lower() in json.dumps(r.to_dict()).lower(), axis=1)
-        ]
+        display = display[display.apply(lambda r: search.lower() in json.dumps(r.to_dict()).lower(), axis=1)]
     display = display[display["anomaly_score"] >= min_score]
 
-    selected = st.multiselect(
-        "Select alerts for bulk actions",
-        options=display["id"].tolist(),
-        placeholder="Choose alert IDs…",
-    )
+    selected = st.multiselect("SELECT ALERTS FOR BULK ACTION", options=display["id"].tolist(), placeholder="Choose alert IDs…")
+    st.dataframe(display.head(200), use_container_width=True, height=300)
 
-    st.dataframe(
-        display.head(200),
-        use_container_width=True,
-        height=320,
-    )
-
-    action_col1, action_col2 = st.columns(2)
-    with action_col1:
-        if st.button("🔁 Enqueue selected for advice"):
+    a1, a2 = st.columns(2)
+    with a1:
+        if st.button("⟳  ENQUEUE FOR ADVICE"):
             if not selected:
-                st.warning("No alerts selected")
+                st.warning("No alerts selected.")
             else:
                 redis_health = check_redis_health(REDIS_URL)
                 if redis_health.get("connected"):
                     enqueued = bulk_enqueue_advice(selected, DB_PATH, REDIS_URL)
-                    st.success(f"Enqueued {enqueued} alerts for advice")
+                    st.success(f"Enqueued {enqueued} alerts.")
                 else:
-                    st.info("Redis unavailable — generating advice synchronously")
+                    st.info("Redis unavailable — running synchronously.")
                     from tasks import generate_advice_for_alert
                     for aid in selected:
                         generate_advice_for_alert(aid, DB_PATH)
-                    st.success(f"Generated advice for {len(selected)} alerts (sync)")
-    with action_col2:
-        if st.button("📥 Export selected as CSV"):
+                    st.success(f"Generated advice for {len(selected)} alerts.")
+    with a2:
+        if st.button("↓  EXPORT CSV"):
             if not selected:
-                st.warning("No alerts selected")
+                st.warning("No alerts selected.")
             else:
                 out_df = display[display["id"].isin(selected)]
                 csv = out_df.to_csv(index=False)
-                st.download_button(
-                    "Download CSV",
-                    csv,
-                    file_name="selected_alerts.csv",
-                    mime="text/csv",
-                )
+                st.download_button("Download", csv, file_name="selected_alerts.csv", mime="text/csv")
 
 st.markdown("---")
 
-# ── Security report ───────────────────────────────────────────────────────────
-st.markdown("#### 📄 Security Report")
+
+# ═══════════════════════════════════════════════════════════════
+#  SECURITY REPORT
+# ═══════════════════════════════════════════════════════════════
+section("SECURITY REPORT")
 if os.path.exists(REPORT_FILE):
     with open(REPORT_FILE, "r", encoding="utf-8") as fh:
         rep = fh.read()
-    st.markdown(
-        f"<div style='background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06);"
-        f"border-radius:12px;padding:24px 28px;font-family:Space Mono,monospace;"
-        f"font-size:0.78rem;line-height:1.7;color:rgba(232,237,245,0.8);"
-        f"white-space:pre-wrap;max-height:420px;overflow-y:auto;'>{rep}</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<div class="np-report">{rep}</div>', unsafe_allow_html=True)
 else:
-    st.markdown(
-        "<div style='background:rgba(255,179,71,0.06);border:1px solid rgba(255,179,71,0.15);"
-        "border-radius:12px;padding:20px 24px;color:rgba(232,237,245,0.55);font-size:0.85rem;'>"
-        "No report generated yet. Run <code>pipeline.py</code> to create <code>Security_Report.txt</code>.</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="np-empty">NO REPORT FOUND · RUN pipeline.py TO GENERATE Security_Report.txt</div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
-# ── System status ─────────────────────────────────────────────────────────────
-st.markdown(
-    "<p style='font-size:0.72rem;letter-spacing:0.1em;text-transform:uppercase;"
-    "color:rgba(0,242,255,0.6);font-weight:600;margin-bottom:12px;'>SYSTEM STATUS</p>",
-    unsafe_allow_html=True,
-)
-col_a, col_b = st.columns(2)
 
-with col_a:
-    st.markdown(
-        "<div style='background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);"
-        "border-radius:12px;padding:20px 22px;'>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("**Redis / Queue**")
-    redis_status = check_redis_health(REDIS_URL)
-    if redis_status.get("connected"):
-        st.success(f"Connected · {REDIS_URL}")
+# ═══════════════════════════════════════════════════════════════
+#  SYSTEM STATUS
+# ═══════════════════════════════════════════════════════════════
+section("INFRASTRUCTURE STATUS")
+s1, s2 = st.columns(2)
+
+with s1:
+    redis_ok = check_redis_health(REDIS_URL).get("connected", False)
+    st.markdown(f"""
+    <div class="np-stat-panel">
+      <h4>QUEUE / REDIS</h4>
+      <div class="np-status-row">
+        {dot("g" if redis_ok else "r")}
+        {"CONNECTED" if redis_ok else "OFFLINE"}
+        <span class="v">{REDIS_URL}</span>
+      </div>""", unsafe_allow_html=True)
+    if redis_ok:
         qstats = get_queue_stats(REDIS_URL)
         if "queue_depth" in qstats:
-            st.metric("Queue Depth", qstats["queue_depth"])
-    else:
-        st.error("Redis unavailable — background tasks disabled")
+            st.markdown(f'<div class="np-status-row">QUEUE DEPTH<span class="v">{qstats["queue_depth"]}</span></div>', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-with col_b:
-    st.markdown(
-        "<div style='background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);"
-        "border-radius:12px;padding:20px 22px;'>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("**Database**")
+with s2:
+    st.markdown('<div class="np-stat-panel"><h4>DATABASE</h4>', unsafe_allow_html=True)
     if session is not None:
         try:
-            alert_count = session.query(Alert).count()
-            audit_count = session.query(AuditLog).count()
-            c1, c2 = st.columns(2)
-            c1.metric("Alerts", f"{alert_count:,}")
-            c2.metric("Audit Entries", f"{audit_count:,}")
+            ac = session.query(Alert).count()
+            uc = session.query(AuditLog).count()
+            st.markdown(f"""
+      <div class="np-status-row">{dot("g")} CONNECTED <span class="v">SQLite</span></div>
+      <div class="np-status-row">ALERTS<span class="v">{ac:,}</span></div>
+      <div class="np-status-row">AUDIT ENTRIES<span class="v">{uc:,}</span></div>
+      """, unsafe_allow_html=True)
         except Exception:
-            st.error("Database unavailable")
+            st.markdown(f'{dot("r")} UNAVAILABLE', unsafe_allow_html=True)
     else:
-        st.error("DB session unavailable")
+        st.markdown(f'{dot("r")} SESSION UNAVAILABLE', unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ── Footer ────────────────────────────────────────────────────────────────────
-st.markdown(
-    "<div style='margin-top:2rem;text-align:center;color:rgba(232,237,245,0.2);"
-    "font-size:0.72rem;font-family:Space Mono,monospace;letter-spacing:0.06em;'>"
-    "NETPULSE SHIELD · PREMIUM CONTROL CENTER · AI-POWERED NETWORK SECURITY"
-    "</div>",
-    unsafe_allow_html=True,
-)
+
+# ═══════════════════════════════════════════════════════════════
+#  FOOTER
+# ═══════════════════════════════════════════════════════════════
+st.markdown("""
+<div style="margin-top:3rem;padding-top:1.2rem;border-top:1px solid #1A2535;
+            display:flex;justify-content:space-between;align-items:center;
+            font-family:'IBM Plex Mono',monospace;font-size:0.56rem;
+            color:#1A2535;letter-spacing:0.14em;">
+  <span>NETPULSE SHIELD  ·  THREAT INTELLIGENCE PLATFORM</span>
+  <span>BUILD 2024.1  ·  ALL SYSTEMS MONITORED</span>
+</div>""", unsafe_allow_html=True)
