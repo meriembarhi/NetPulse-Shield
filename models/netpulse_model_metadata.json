@@ -1,0 +1,14 @@
+{
+  "created_at": "2026-05-02T16:16:35.675402",
+  "contamination": 0.05,
+  "n_estimators": 100,
+  "feature_columns": [
+    "sttl",
+    "sbytes",
+    "dbytes",
+    "Sload",
+    "Dload"
+  ],
+  "n_features": 5,
+  "model_version": "2.0"
+}
