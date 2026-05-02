@@ -195,7 +195,48 @@ pip install -r requirements.txt
 python clean_data.py
 ```
 
-### 3. Run the AI-Powered Anomaly Detection (detector.py)
+### 3. Run the Complete End-to-End Pipeline (pipeline.py) ⭐ **Recommended**
+
+The pipeline script orchestrates the full workflow in one command: load data → detect anomalies → generate remediation report.
+
+```bash
+python pipeline.py
+```
+
+**What it does:**
+- Loads network traffic data from `data/final_project_data.csv`
+- Trains Isolation Forest and detects anomalies
+- Saves top 10 anomalies to `alerts.csv`
+- Generates remediation advice for top 5 anomalies
+- Writes comprehensive security report to `Security_Report.txt`
+
+**Common usage patterns:**
+
+```bash
+# Use default data
+python pipeline.py
+
+# Use custom CSV
+python pipeline.py data/my_traffic.csv
+
+# Skip database persistence (for testing/CI)
+python pipeline.py --no-persist
+
+# Custom output paths
+python pipeline.py --alerts-csv my_alerts.csv --report my_report.txt
+```
+
+**Perfect for:**
+- ✅ Automation and batch processing
+- ✅ CI/CD pipelines
+- ✅ Scheduled jobs
+- ✅ Quick end-to-end verification
+
+---
+
+### 4. Interactive Anomaly Detection (detector.py)
+
+If you need more control, run the detector directly.
 
 This core module handles the intelligence layer of NetPulse-Shield. It utilizes the Isolation Forest algorithm—an unsupervised learning method ideal for identifying rare items or observations that differ significantly from the majority of the network traffic.
 
@@ -235,7 +276,7 @@ Total records analysed : 50000
 Anomalies detected     : 2710 (5.4 %)
 ✅ Alerts saved in 'alerts.csv'
 ```
-### 4. Run the AI Remediation Suite (solver.py)
+### 5. Run the AI Remediation Suite (solver.py)
 
 This module serves as the primary orchestrator for the RAG-based remediation pipeline. It bridges the gap between raw detection and expert-level response.
 
@@ -273,7 +314,7 @@ REMEDIATION STEPS:
 3. Apply a rate-limiting policy to the affected interface.
 ==================================================
 
-### 5. Interactive Query Mode (solver.py)
+### 6. Interactive Query Mode (solver.py)
 
 ```bash
 python solver.py "High Sload from single IP targeting port 22 — possible SSH brute-force."
@@ -286,7 +327,7 @@ Semantic Retrieval: Because it uses FAISS and Vector Embeddings, you don't need 
 
 Zero-Latency Knowledge: Accesses the curated manuals in knowledge_base.py instantly without searching through raw documentation files.
 
-### 6. Advanced AI Remediation with Llama 3 (remediator.py)
+### 7. Advanced AI Remediation with Llama 3 (remediator.py)
 For security environments with local AI capability, this module leverages Ollama to provide deep technical synthesis. It acts as a bridge between abstract threat detection and production-ready hardware hardening.
 
 Prerequisites:
@@ -312,7 +353,7 @@ Features:
 
 🔒 Local-First Privacy: By running Llama 3 entirely on-premises via Ollama, sensitive network topology and security data never leave your private infrastructure.
 
-### 7. Launch the interactive dashboard
+### 8. Launch the interactive dashboard
 
 The NetPulse-Shield dashboard transforms raw network logs into actionable intelligence, providing a centralized interface for network administrators.
 
