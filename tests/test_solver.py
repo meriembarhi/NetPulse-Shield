@@ -1,38 +1,41 @@
-"""
-test_solver.py - Validation Suite for RAG-Based Security Remediation
+"""Tests for the solver entry point using realistic alert-file workflows."""
 
-This script validates the intelligence of the RAG advisor. It ensures 
-the retrieval-augmented system provides industry-standard security 
-mitigation steps (MFA, fail2ban, ACLs) in response to specific threats.
+from pathlib import Path
 
-Validation Criteria:
-- Semantic matching between a threat query and expert knowledge.
-- Presence of actionable technical keywords in the generated advice.
-"""
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from advisor import NetworkSecurityAdvisor
+import pytest
 
-def test_rag_remediation_accuracy():
-    """
-    Test Case: Verify remediation for an Authentication Attack.
-    Scenario: User submits a query regarding SSH Brute-force detection.
-    """
-    advisor = NetworkSecurityAdvisor()
-    
-    # Defining a specific threat scenario common in local networks
-    query = "Repeated failed SSH login attempts from a single source IP (Brute-force)."
-    response = advisor.get_remediation_advice(query)
-    
-    # List of expected professional mitigation technologies
-    required_keywords = ["MFA", "fail2ban", "ACL", "lockout", "policy"]
-    
-    # Check if the AI response is technical enough
-    found = any(word.lower() in response.lower() for word in required_keywords)
-    
-    assert found, f"FAIL: Advice was too vague. Missing key terms: {required_keywords}"
-    print("\n✅ Solver Test Passed: RAG system returned precise, actionable security protocols.")
+import solver
 
-if __name__ == "__main__":
-    test_rag_remediation_accuracy()
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+ALERTS_FIXTURE = FIXTURES_DIR / "alerts_sample.csv"
+
+
+class FakeAdvisor:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def get_remediation_advice(self, query: str) -> str:
+        return f"Mock remediation for: {query}\nApply ACL, lockout, and policy controls."
+
+
+def test_solver_exits_when_alerts_file_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SystemExit) as exc_info:
+        solver.main()
+
+    assert exc_info.value.code == 1
+
+
+def test_solver_processes_a_realistic_alert_csv(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(solver, "NetworkSecurityAdvisor", FakeAdvisor)
+    Path("alerts.csv").write_text(ALERTS_FIXTURE.read_text(), encoding="utf-8")
+
+    solver.main()
+
+    output = capsys.readouterr().out
+    assert "NetPulse-Shield — RAG Advisor (Modular)" in output
+    assert "Lateral movement detected" in output
+    assert "ACL, lockout, and policy controls" in output

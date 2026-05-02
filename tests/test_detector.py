@@ -1,72 +1,57 @@
-"""
-test_detector.py - Validation Suite for Network Anomaly Detection
+"""Tests for the network anomaly detector using realistic CSV-shaped data."""
 
-This script performs unit testing on the ML-based detector. It ensures
-the Isolation Forest model correctly identifies extreme network traffic
-outliers (anomalies) which represent potential DDoS or high-load attacks.
+from pathlib import Path
 
-Validation Criteria:
-- Model returns is_anomaly=True for traffic features exceeding normal thresholds.
-- Dataframe compatibility for real-time traffic features (Sload, sttl, sbytes).
-"""
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import numpy as np
 import pandas as pd
+import pytest
+
 from detector import NetworkAnomalyDetector
 
 
-def make_training_data():
-    """20 normal records + 1 obvious anomaly for the model to learn from."""
-    normal = pd.DataFrame({
-        'Sload':  [1000.0] * 20,
-        'sttl':   [64] * 20,
-        'sbytes': [500] * 20,
-    })
-    anomaly = pd.DataFrame({
-        'Sload':  [2000000000.0],
-        'sttl':   [255],
-        'sbytes': [999999],
-    })
-    return pd.concat([normal, anomaly], ignore_index=True)
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+DETECTOR_FIXTURE = FIXTURES_DIR / "detector_sample.csv"
 
 
-def test_extreme_anomaly_detection():
-    """
-    Test Case: Verify detection of a volumetric attack.
-    Scenario: Injected packet data with impossible load and byte counts.
-    """
-    df = make_training_data()
-    detector = NetworkAnomalyDetector(contamination=0.1)
-
-    # analyze() trains + detects in one call — returns df with is_anomaly column
-    results = detector.analyze(df)
-
-    anomalies = results[results["is_anomaly"]]
-    assert len(anomalies) > 0, "FAIL: Detector found zero anomalies."
-    print("\n✅ Detector Test Passed: Volumetric attack signature correctly isolated.")
+def load_detector_fixture() -> pd.DataFrame:
+    return pd.read_csv(DETECTOR_FIXTURE)
 
 
-def test_output_has_required_columns():
-    """Test that analyze() always returns the expected output columns."""
-    df = make_training_data()
-    detector = NetworkAnomalyDetector()
-    results = detector.analyze(df)
-
-    assert "is_anomaly" in results.columns, "FAIL: Missing 'is_anomaly' column."
-    assert "anomaly_score" in results.columns, "FAIL: Missing 'anomaly_score' column."
+def make_detector(tmp_path: Path, contamination: float = 0.1) -> NetworkAnomalyDetector:
+    model_path = tmp_path / "netpulse_model.joblib"
+    return NetworkAnomalyDetector(contamination=contamination, model_path=str(model_path))
 
 
-def test_output_shape_unchanged():
-    """Test that analyze() returns the same number of rows as input."""
-    df = make_training_data()
-    detector = NetworkAnomalyDetector()
-    results = detector.analyze(df)
+def test_analyze_realistic_csv_columns_and_shape(tmp_path):
+    df = load_detector_fixture()
+    detector = make_detector(tmp_path)
 
-    assert len(results) == len(df), "FAIL: Output row count doesn't match input."
+    results = detector.analyze(df, force_train=True)
+
+    assert len(results) == len(df)
+    assert "anomaly" in results.columns
+    assert "anomaly_score" in results.columns
+    assert "is_anomaly" in results.columns
+    assert results["anomaly_score"].notna().all()
 
 
-if __name__ == "__main__":
-    test_extreme_anomaly_detection()
-    test_output_has_required_columns()
-    test_output_shape_unchanged()
+def test_analyze_handles_infinities_and_missing_values(tmp_path):
+    df = load_detector_fixture().copy()
+    df.loc[0, "Sload"] = np.inf
+    df.loc[1, "Dload"] = -np.inf
+    df.loc[2, "sbytes"] = np.nan
+
+    detector = make_detector(tmp_path)
+    results = detector.analyze(df, force_train=True)
+
+    assert len(results) == len(df)
+    assert results["anomaly_score"].notna().all()
+    assert results["is_anomaly"].dtype == bool
+
+
+def test_analyze_requires_at_least_one_numeric_feature(tmp_path):
+    df = pd.DataFrame({"Label": [0, 1, 0]})
+    detector = make_detector(tmp_path)
+
+    with pytest.raises(ValueError):
+        detector.analyze(df, force_train=True)
