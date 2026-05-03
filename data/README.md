@@ -1,3 +1,3 @@
 # Placeholder — place network traffic CSV files in this directory.
-# The detector.py script will look for sample_traffic.csv here and
-# generate it automatically if it does not already exist.
+# The active pipeline uses data/final_project_data.csv; this folder is
+# primarily for input datasets and generated CSVs during preprocessing.
