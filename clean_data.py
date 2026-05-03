@@ -41,8 +41,16 @@ def prepare_final_dataset():
         print("❌ Error: the source file is empty.")
         return
 
-    # 3. Select the key features and clean the data
-    power_features = ['sttl', 'sbytes', 'dbytes', 'Sload', 'Dload', 'Label']
+    # 3. Select 12 domain-guided features for optimal anomaly detection
+    # Feature Selection Rationale:
+    #   - Protocol behavior: sttl, dttl (TTL fingerprinting)
+    #   - Traffic volume: sbytes, dbytes (data transfer)
+    #   - Load characteristics: Sload, Dload (bandwidth patterns)
+    #   - Packet quality: sloss, dloss (retransmissions → anomalies)
+    #   - Packet counts: Spkts, Dpkts (connection behavior)
+    #   - Timing metrics: tcprtt (connection setup), Sjit (jitter → automated traffic)
+    power_features = ['sttl', 'dttl', 'sbytes', 'dbytes', 'Sload', 'Dload', 
+                      'sloss', 'dloss', 'Spkts', 'Dpkts', 'tcprtt', 'Sjit', 'Label']
     
     # Check that the required columns are present
     missing_cols = [col for col in power_features if col not in raw_data.columns]
