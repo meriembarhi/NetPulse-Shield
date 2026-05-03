@@ -72,7 +72,16 @@ if st.sidebar.button("🚀 1. Run Network Analysis"):
     with st.spinner("Analyzing traffic with Isolation Forest..."):
         try:
             raw_data = pd.read_csv(DATA_FILE)
-            detector = NetworkAnomalyDetector(contamination=0.05, persist_to_db=True, db_path=DB_PATH)
+            has_labels = "Label" in raw_data.columns
+            detector = NetworkAnomalyDetector(contamination='auto', persist_to_db=True, db_path=DB_PATH)
+
+            if has_labels:
+                st.sidebar.info("Labels found: tuning contamination by F1 before analysis.")
+                tuned_contamination = detector.tune_contamination(raw_data, label_column="Label")
+                detector.contamination = tuned_contamination
+            else:
+                st.sidebar.info("No labels found: using automatic contamination fallback.")
+
             results = detector.analyze(raw_data)
 
             alerts_df = results[results["is_anomaly"]].copy()
