@@ -68,6 +68,38 @@ if env_token:
 else:
     st.sidebar.info("No DASHBOARD_TOKEN set — dashboard is running in dev mode.")
 
+# Auto-run analysis on page load: tune contamination when labels exist,
+# run analysis, persist alerts.csv and DB (mirrors the manual button flow).
+with st.spinner("Auto-running analysis (tuning if labels available)..."):
+    try:
+        raw_data = load_csv(DATA_FILE)
+        if raw_data is not None:
+            has_labels = "Label" in raw_data.columns
+            detector = NetworkAnomalyDetector(contamination='auto', persist_to_db=True, db_path=DB_PATH)
+
+            if has_labels:
+                st.info("Labels detected — tuning contamination automatically.")
+                try:
+                    tuned_contamination = detector.tune_contamination(raw_data, label_column="Label")
+                    detector.contamination = tuned_contamination
+                except Exception as exc:  # tuning can fail; fall back gracefully
+                    st.warning(f"Contamination tuning failed: {exc} — using detector fallback.")
+            else:
+                st.info("No labels found: using detector's automatic contamination fallback.")
+
+            try:
+                results = detector.analyze(raw_data)
+                alerts_df = results[results["is_anomaly"]].copy()
+                alerts_df.to_csv(ALERTS_FILE, index=False)
+                st.sidebar.success("Auto-detection complete; alerts saved.")
+                st.cache_data.clear()
+            except Exception as exc:
+                st.sidebar.error(f"Auto-analysis error: {exc}")
+        else:
+            st.info("No data file available to auto-run analysis.")
+    except Exception as exc:
+        st.error(f"Auto-run failure: {exc}")
+
 if st.sidebar.button("🚀 1. Run Network Analysis"):
     with st.spinner("Analyzing traffic with Isolation Forest..."):
         try:
