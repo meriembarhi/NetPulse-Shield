@@ -291,6 +291,8 @@ Services:
 
 ### Optional Ollama / LLM path
 
+This path is separate from the default RAG workflow. It requires a local Ollama installation, the Ollama service running, and a downloaded model such as `llama3`.
+
 ```bash
 ollama serve
 python remediator.py
@@ -307,14 +309,14 @@ Core packages come from `requirements.txt`:
 - `langchain`, `langchain-community`, `langchain-core`, `langchain-text-splitters` for RAG orchestration
 - `sentence-transformers` and `faiss-cpu` for semantic retrieval
 - `redis` and `rq` for background jobs
-- `ollama` for the optional local LLM path
+- `ollama` for the optional local LLM path, plus the Ollama app/service and a local model download
 
 ## Recommended usage
 
 1. If you want the simplest full run, use `python pipeline.py`.
 2. If you want interactive triage, use `streamlit run dashboard.py`.
-3. If you want background advice generation, run Redis and the RQ worker.
-4. If you want the LLM-only path, start Ollama and run `remediator.py` or `auto_remediator.py`.
+3. If you want the default remediation engine, use the RAG path exposed by `solver.py` / `advisor.py`.
+4. If you want the LLM-only path, start Ollama first, then run `remediator.py` or `auto_remediator.py`.
 
 ## Testing and validation
 
@@ -328,7 +330,7 @@ ruff check .
 - If `alerts.csv` is missing, run `python detector.py` or `python pipeline.py`.
 - If contamination tuning fails, the detector falls back to `0.05`.
 - If Redis is unavailable, the dashboard uses synchronous advice generation.
-- If Ollama is unavailable, the RAG advisor still works and the LLM path is simply skipped.
+- If Ollama is unavailable, the RAG advisor still works and the LLM path cannot run.
 - If the detector complains about schema mismatch, regenerate `data/final_project_data.csv` and retrain so the saved feature list matches the input.
 
 ## License
