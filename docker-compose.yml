@@ -10,6 +10,8 @@ services:
       - '8501:8501'
     environment:
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
+      - NETPULSE_WEBHOOK_URL=${NETPULSE_WEBHOOK_URL:-http://host.docker.internal:5000}
+      - NETPULSE_WEBHOOK_PROFILE=${NETPULSE_WEBHOOK_PROFILE:-generic}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       - redis
@@ -19,5 +21,7 @@ services:
     command: rq worker advisor
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - NETPULSE_WEBHOOK_URL=${NETPULSE_WEBHOOK_URL:-http://host.docker.internal:5000}
+      - NETPULSE_WEBHOOK_PROFILE=${NETPULSE_WEBHOOK_PROFILE:-generic}
     depends_on:
       - redis
