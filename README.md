@@ -13,6 +13,7 @@ NetPulse-Shield analyse le trafic réseau (dataset UNSW-NB15), détecte les anom
 - Stockage des alertes dans **CSV** + **SQLite**
 - Conseils de remédiation via **RAG** (recherche sémantique avec fallback TF-IDF)
 - Mode avancé avec **Ollama / Llama 3** (optionnel)
+- Envoi optionnel des alertes vers un **SIEM** ou un système externe via **webhook JSON**
 - Tableau de bord **Streamlit** interactif
 - Pipeline complet en une seule commande (`pipeline.py`)
 - Support **Docker + Redis + RQ** pour le traitement en arrière-plan
@@ -71,6 +72,35 @@ Fichiers : remediator.py, auto_remediator.py
 Fonctionnement : Envoie les anomalies à Llama 3 pour générer des rapports structurés (type d’attaque, niveau de risque, commandes Cisco, etc.)
 Avantages : Conseils très détaillés et naturels
 Prérequis : Ollama installé + modèle llama3 (ou équivalent)
+
+### 3. Webhook SIEM (Optionnel)
+
+Le projet peut aussi envoyer chaque alerte vers un SIEM ou un système externe en JSON.
+
+- Fichier principal : `webhook.py`
+- Utilisation synchrone : `pipeline.py`
+- Utilisation asynchrone : `tasks.py`
+- Configuration par défaut : variable d'environnement `NETPULSE_WEBHOOK_URL`
+- Configuration manuelle : argument `--webhook-url` dans `pipeline.py`
+
+Exemple de payload envoyé :
+
+```json
+{
+    "source": "NetPulse-Shield",
+    "timestamp": "2026-05-06T12:00:00Z",
+    "alert_id": 12,
+    "source_ip": "10.0.0.10",
+    "destination_ip": "10.0.0.20",
+    "anomaly_score": -0.91,
+    "severity": "high",
+    "attack_type": "DDoS",
+    "description": "Suspicious traffic flood detected",
+    "advice": "Enable rate limiting and filter traffic"
+}
+```
+
+Si l'URL webhook n'est pas configurée, le projet continue normalement. L'envoi est seulement ignoré.
 
 ### Structure du projet
 
@@ -198,6 +228,7 @@ ruff check .
 -Données manquantes → Exécute python clean_data.py
 -Redis non disponible → Le dashboard passe automatiquement en mode synchrone
 -Ollama non lancé → Le RAG continue de fonctionner normalement
+-Webhook non configuré → Aucune erreur, les alertes restent locales
 -Problème de schéma → Relance clean_data.py puis pipeline.py
 
 ### License

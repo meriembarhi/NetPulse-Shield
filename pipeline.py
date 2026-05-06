@@ -24,6 +24,7 @@ import pandas as pd
 
 from detector import NetworkAnomalyDetector
 from advisor import NetworkSecurityAdvisor
+from webhook import send_alert_via_webhook
 
 # Configure logging
 logging.basicConfig(
@@ -95,7 +96,11 @@ def save_alerts_csv(results: pd.DataFrame, output_path: str = "alerts.csv") -> N
         logger.error(f"⚠️  Failed to save alerts CSV: {e}")
 
 
-def generate_remediation_report(results: pd.DataFrame, output_path: str = "Security_Report.txt") -> None:
+def generate_remediation_report(
+    results: pd.DataFrame,
+    output_path: str = "Security_Report.txt",
+    webhook_url: str | None = None,
+) -> None:
     """Generate remediation advice for detected anomalies."""
     logger.info("\n" + "="*60)
     logger.info("STEP 2: REMEDIATION ADVICE GENERATION")
@@ -126,6 +131,14 @@ def generate_remediation_report(results: pd.DataFrame, output_path: str = "Secur
             
             logger.info(f"\n[Anomaly {idx}/{min(5, len(anomalies))}] Retrieving advice...")
             advice = advisor.get_remediation_advice(description)
+
+            # Envoi best-effort vers un SIEM ou systeme externe via webhook.
+            # L'echec de cet appel ne doit pas interrompre le pipeline.
+            alert_payload = row.to_dict()
+            alert_payload["alert_id"] = alert_payload.get("alert_id") or alert_payload.get("id") or idx
+            alert_payload["description"] = description
+            alert_payload["advice"] = advice
+            send_alert_via_webhook(alert_payload, webhook_url=webhook_url, advice=advice)
             
             report_lines.append(f"[ALERT {idx}] Anomaly Score: {row['anomaly_score']:.4f}")
             report_lines.append("-" * 70)
@@ -178,6 +191,11 @@ Examples:
         default='Security_Report.txt',
         help='Output path for security report (default: Security_Report.txt)'
     )
+    parser.add_argument(
+        '--webhook-url',
+        default=None,
+        help='Webhook URL for sending alerts to an external SIEM (optional)'
+    )
     
     args = parser.parse_args()
     
@@ -197,7 +215,7 @@ Examples:
     save_alerts_csv(results, args.alerts_csv)
     
     # ===== STEP 4: Generate Remediation Report =====
-    generate_remediation_report(results, args.report)
+    generate_remediation_report(results, args.report, webhook_url=args.webhook_url)
     
     logger.info("\n" + "="*60)
     logger.info("✅ PIPELINE COMPLETE")
