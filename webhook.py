@@ -35,6 +35,19 @@ def load_webhook_config(explicit_url: str | None = None) -> str | None:
     return env_url or None
 
 
+def load_webhook_profile(explicit_profile: str | None = None) -> str:
+    """Charge le profil d'envoi webhook.
+
+    Valeurs supportees: generic, wazuh.
+    """
+
+    if explicit_profile and explicit_profile.strip():
+        return explicit_profile.strip().lower()
+
+    env_profile = os.getenv("NETPULSE_WEBHOOK_PROFILE", "generic").strip().lower()
+    return env_profile or "generic"
+
+
 def _json_safe(value: Any) -> Any:
     """Convertit les objets non serialisables en valeurs JSON sures."""
 
@@ -77,7 +90,11 @@ def _first_non_empty(payload: Mapping[str, Any], keys: list[str]) -> Any:
     return None
 
 
-def build_webhook_payload(alert: Mapping[str, Any], advice: str | None = None) -> dict[str, Any]:
+def build_webhook_payload(
+    alert: Mapping[str, Any],
+    advice: str | None = None,
+    profile: str = "generic",
+) -> dict[str, Any]:
     """Construit un payload JSON standardise pour les SIEM ou webhooks externes."""
 
     severity = _first_non_empty(alert, ["severity", "risk_level"])
@@ -136,6 +153,37 @@ def build_webhook_payload(alert: Mapping[str, Any], advice: str | None = None) -
         "advice": _json_safe(advice if advice is not None else alert.get("advice")),
     }
 
+    if profile == "wazuh":
+        payload = {
+            **payload,
+            "integration": "NetPulse-Shield",
+            "event_type": "network_anomaly",
+            "location": "NetPulse-Shield",
+            "rule": {
+                "id": "100001",
+                "level": 10 if payload["severity"] == "high" else 7 if payload["severity"] == "medium" else 3,
+                "description": "NetPulse-Shield anomaly alert",
+                "groups": ["netpulse", "network", "anomaly"],
+            },
+            "agent": {
+                "name": "NetPulse-Shield",
+                "id": "000",
+            },
+            "manager": {
+                "name": "wazuh",
+            },
+            "data": {
+                "source_ip": payload.get("source_ip"),
+                "destination_ip": payload.get("destination_ip"),
+                "anomaly_score": payload.get("anomaly_score"),
+                "severity": payload.get("severity"),
+                "attack_type": payload.get("attack_type"),
+                "description": payload.get("description"),
+                "advice": payload.get("advice"),
+            },
+            "full_log": f"NetPulse-Shield anomaly alert: {payload.get('description')}",
+        }
+
     return payload
 
 
@@ -144,6 +192,7 @@ def send_alert_via_webhook(
     webhook_url: str | None = None,
     timeout: int = 5,
     advice: str | None = None,
+    profile: str | None = None,
 ) -> bool:
     """Envoie une alerte via webhook en JSON.
 
@@ -158,7 +207,8 @@ def send_alert_via_webhook(
         logger.info("Webhook non configure: envoi ignore.")
         return False
 
-    payload = build_webhook_payload(alert, advice=advice)
+    target_profile = load_webhook_profile(profile)
+    payload = build_webhook_payload(alert, advice=advice, profile=target_profile)
     body = json.dumps(payload, ensure_ascii=False, default=_json_safe).encode("utf-8")
 
     request = urllib_request.Request(
@@ -172,18 +222,18 @@ def send_alert_via_webhook(
         with urllib_request.urlopen(request, timeout=timeout) as response:
             status_code = getattr(response, "status", response.getcode())
             if 200 <= int(status_code) < 300:
-                logger.info("Webhook envoye avec succes vers %s", target_url)
+                logger.info("Webhook (%s) envoye avec succes vers %s", target_profile, target_url)
                 return True
 
-            logger.warning("Webhook repondu avec le statut HTTP %s vers %s", status_code, target_url)
+            logger.warning("Webhook (%s) repondu avec le statut HTTP %s vers %s", target_profile, status_code, target_url)
             return False
     except urllib_error.HTTPError as exc:
-        logger.warning("Webhook refuse avec HTTP %s vers %s: %s", exc.code, target_url, exc)
+        logger.warning("Webhook (%s) refuse avec HTTP %s vers %s: %s", target_profile, exc.code, target_url, exc)
     except urllib_error.URLError as exc:
-        logger.warning("Webhook indisponible vers %s: %s", target_url, exc)
+        logger.warning("Webhook (%s) indisponible vers %s: %s", target_profile, target_url, exc)
     except TimeoutError as exc:
-        logger.warning("Webhook en timeout vers %s: %s", target_url, exc)
+        logger.warning("Webhook (%s) en timeout vers %s: %s", target_profile, target_url, exc)
     except Exception as exc:
-        logger.exception("Erreur inattendue lors de l'envoi du webhook vers %s: %s", target_url, exc)
+        logger.exception("Erreur inattendue lors de l'envoi du webhook (%s) vers %s: %s", target_profile, target_url, exc)
 
     return False

@@ -48,6 +48,21 @@ def test_build_webhook_payload_contains_required_fields(sample_alert):
     assert payload["advice"]
 
 
+def test_build_webhook_payload_wazuh_profile_adds_siem_structure(sample_alert):
+    """Verifie que le profil Wazuh enrichit le payload avec une structure SIEM exploitable."""
+    payload = webhook.build_webhook_payload(sample_alert, advice=sample_alert["advice"], profile="wazuh")
+
+    assert payload["source"] == "NetPulse-Shield"
+    assert payload["integration"] == "NetPulse-Shield"
+    assert payload["event_type"] == "network_anomaly"
+    assert payload["rule"]["id"] == "100001"
+    assert payload["rule"]["level"] == 10
+    assert payload["agent"]["name"] == "NetPulse-Shield"
+    assert payload["manager"]["name"] == "wazuh"
+    assert payload["data"]["attack_type"] == "DDoS"
+    assert payload["full_log"]
+
+
 def test_send_alert_via_webhook_succeeds_and_sends_json(monkeypatch, sample_alert):
     """Verifie qu'un webhook configure recoit bien un JSON structure en cas de succes."""
     captured = {}
@@ -80,6 +95,40 @@ def test_send_alert_via_webhook_succeeds_and_sends_json(monkeypatch, sample_aler
     assert captured["timeout"] == 5
     assert captured["body"]["source"] == "NetPulse-Shield"
     assert captured["body"]["attack_type"] == "DDoS"
+
+
+def test_send_alert_via_webhook_supports_wazuh_profile(monkeypatch, sample_alert):
+    """Verifie que l'envoi Wazuh utilise bien le profil demande dans le JSON transmis."""
+    captured = {}
+
+    class _DummyResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def getcode(self):
+            return 200
+
+    def _fake_urlopen(request, timeout=5):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return _DummyResponse()
+
+    monkeypatch.setattr(webhook.urllib_request, "urlopen", _fake_urlopen)
+
+    result = webhook.send_alert_via_webhook(
+        sample_alert,
+        webhook_url="http://wazuh.local/integration",
+        profile="wazuh",
+    )
+
+    assert result is True
+    assert captured["body"]["integration"] == "NetPulse-Shield"
+    assert captured["body"]["manager"]["name"] == "wazuh"
+    assert captured["body"]["rule"]["level"] == 10
 
 
 def test_send_alert_via_webhook_returns_false_when_unavailable(monkeypatch, sample_alert):

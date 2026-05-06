@@ -83,6 +83,27 @@ Le projet peut aussi envoyer chaque alerte vers un SIEM ou un système externe e
 - Configuration par défaut : variable d'environnement `NETPULSE_WEBHOOK_URL`
 - Configuration manuelle : argument `--webhook-url` dans `pipeline.py`
 
+#### Mode Wazuh
+
+Wazuh peut recevoir ces alertes via un endpoint HTTP d'intégration ou un connecteur externe.
+Pour adapter le format au SIEM, utilisez le profil Wazuh :
+
+- Variable d'environnement : `NETPULSE_WEBHOOK_PROFILE=wazuh`
+- Argument CLI : `--webhook-profile wazuh`
+
+Dans ce mode, le payload garde les champs principaux, mais ajoute aussi une structure proche d'un événement SIEM :
+
+- `rule` avec un niveau de sévérité
+- `agent` pour identifier la source logique
+- `manager` pour le contexte SIEM
+- `data` pour garder les détails exploitables
+
+Exemple de lancement :
+
+```bash
+NETPULSE_WEBHOOK_URL=http://wazuh.example/integration NETPULSE_WEBHOOK_PROFILE=wazuh python pipeline.py
+```
+
 Exemple de payload envoyé :
 
 ```json

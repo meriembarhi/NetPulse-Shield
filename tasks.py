@@ -1,4 +1,5 @@
 import json
+import os
 
 from db import Alert, AuditLog, get_session
 from webhook import send_alert_via_webhook
@@ -48,7 +49,8 @@ def generate_advice_for_alert(alert_id: int, db_path: str = 'sqlite:///alerts.db
     except Exception:
         pass
 
-    send_alert_via_webhook(webhook_payload, advice=advice)
+    webhook_profile = os.getenv("NETPULSE_WEBHOOK_PROFILE", "generic")
+    send_alert_via_webhook(webhook_payload, advice=advice, profile=webhook_profile)
 
     # Enregistrement de l'audit local pour tracer la generation des conseils.
     session.add(AuditLog(alert_id=alert.id, action='advice_generated', actor='worker'))

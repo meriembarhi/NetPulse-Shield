@@ -100,6 +100,7 @@ def generate_remediation_report(
     results: pd.DataFrame,
     output_path: str = "Security_Report.txt",
     webhook_url: str | None = None,
+    webhook_profile: str | None = None,
 ) -> None:
     """Generate remediation advice for detected anomalies."""
     logger.info("\n" + "="*60)
@@ -138,7 +139,12 @@ def generate_remediation_report(
             alert_payload["alert_id"] = alert_payload.get("alert_id") or alert_payload.get("id") or idx
             alert_payload["description"] = description
             alert_payload["advice"] = advice
-            send_alert_via_webhook(alert_payload, webhook_url=webhook_url, advice=advice)
+            send_alert_via_webhook(
+                alert_payload,
+                webhook_url=webhook_url,
+                advice=advice,
+                profile=webhook_profile,
+            )
             
             report_lines.append(f"[ALERT {idx}] Anomaly Score: {row['anomaly_score']:.4f}")
             report_lines.append("-" * 70)
@@ -196,6 +202,12 @@ Examples:
         default=None,
         help='Webhook URL for sending alerts to an external SIEM (optional)'
     )
+    parser.add_argument(
+        '--webhook-profile',
+        default=None,
+        choices=['generic', 'wazuh'],
+        help='Webhook payload profile (generic or wazuh)'
+    )
     
     args = parser.parse_args()
     
@@ -215,7 +227,12 @@ Examples:
     save_alerts_csv(results, args.alerts_csv)
     
     # ===== STEP 4: Generate Remediation Report =====
-    generate_remediation_report(results, args.report, webhook_url=args.webhook_url)
+    generate_remediation_report(
+        results,
+        args.report,
+        webhook_url=args.webhook_url,
+        webhook_profile=args.webhook_profile,
+    )
     
     logger.info("\n" + "="*60)
     logger.info("✅ PIPELINE COMPLETE")
