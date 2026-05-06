@@ -75,7 +75,7 @@ services:
       dockerfile: Dockerfile
     container_name: netpulse-shield
     environment:
-      - NETPULSE_WEBHOOK_URL=http://wazuh-manager:1514
+      - NETPULSE_WEBHOOK_URL=${NETPULSE_WEBHOOK_URL:-http://wazuh-manager:PORT/your-http-endpoint}
       - NETPULSE_WEBHOOK_PROFILE=wazuh
     volumes:
       - ./data:/app/data

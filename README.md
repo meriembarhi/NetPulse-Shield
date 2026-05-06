@@ -75,36 +75,51 @@ Prérequis : Ollama installé + modèle llama3 (ou équivalent)
 
 ### 3. Webhook SIEM (Optionnel)
 
-Le projet peut aussi envoyer chaque alerte vers un SIEM ou un système externe en JSON.
+Le projet peut envoyer chaque alerte vers un SIEM ou un autre système externe en JSON.
 
-- Fichier principal : `webhook.py`
-- Utilisation synchrone : `pipeline.py`
-- Utilisation asynchrone : `tasks.py`
-- Configuration par défaut : variable d'environnement `NETPULSE_WEBHOOK_URL`
-- Configuration manuelle : argument `--webhook-url` dans `pipeline.py`
+Utilisation générale:
 
-#### Mode Wazuh
+- Fichier principal: [webhook.py](webhook.py)
+- Flux synchrone: [pipeline.py](pipeline.py)
+- Flux asynchrone: [tasks.py](tasks.py)
+- Configuration: variable d'environnement `NETPULSE_WEBHOOK_URL`
+- Alternative: argument `--webhook-url` dans `pipeline.py`
 
-Wazuh peut recevoir ces alertes via un endpoint HTTP d'intégration ou un connecteur externe.
-Pour adapter le format au SIEM, utilisez le profil Wazuh :
+#### Wazuh
 
-- Variable d'environnement : `NETPULSE_WEBHOOK_PROFILE=wazuh`
-- Argument CLI : `--webhook-profile wazuh`
+Wazuh doit exposer un endpoint HTTP d'intégration, ou un connecteur qui reçoit du JSON. NetPulse n'envoie pas directement vers le port d'agent Wazuh; il faut fournir l'URL HTTP exacte du point d'entrée que vous avez configuré côté Wazuh.
 
-Dans ce mode, le payload garde les champs principaux, mais ajoute aussi une structure proche d'un événement SIEM :
+Pour utiliser le profil Wazuh:
 
-- `rule` avec un niveau de sévérité
-- `agent` pour identifier la source logique
-- `manager` pour le contexte SIEM
-- `data` pour garder les détails exploitables
+- Variable d'environnement: `NETPULSE_WEBHOOK_PROFILE=wazuh`
+- Argument CLI: `--webhook-profile wazuh`
 
-Exemple de lancement :
+Ce profil ajoute des champs de contexte SIEM au payload pour faciliter la corrélation côté Wazuh:
+
+- `rule` pour la sévérité
+- `agent` pour l'identité logique de la source
+- `manager` pour le contexte Wazuh
+- `data` pour les détails de l'alerte
+
+#### Lancement recommandé
+
+1. Démarrer Wazuh avec le fichier [docker-compose-wazuh.yml](docker-compose-wazuh.yml).
+2. Récupérer l'URL HTTP de l'intégration Wazuh.
+3. Configurer NetPulse avec cette URL.
 
 ```bash
-NETPULSE_WEBHOOK_URL=http://wazuh.example/integration NETPULSE_WEBHOOK_PROFILE=wazuh python pipeline.py
+$env:NETPULSE_WEBHOOK_URL = "http://wazuh-manager:PORT/your-http-endpoint"
+$env:NETPULSE_WEBHOOK_PROFILE = "wazuh"
+docker compose -f docker-compose.yml up
 ```
 
-Exemple de payload envoyé :
+Ou en une seule commande:
+
+```bash
+NETPULSE_WEBHOOK_URL=http://wazuh-manager:PORT/your-http-endpoint NETPULSE_WEBHOOK_PROFILE=wazuh python pipeline.py
+```
+
+#### Exemple de payload
 
 ```json
 {
@@ -121,7 +136,11 @@ Exemple de payload envoyé :
 }
 ```
 
-Si l'URL webhook n'est pas configurée, le projet continue normalement. L'envoi est seulement ignoré.
+Si l'URL webhook n'est pas configurée, le projet continue normalement et l'alerte reste locale.
+
+#### Fichier d'exemple Docker
+
+Le fichier [docker-compose-wazuh.yml](docker-compose-wazuh.yml) contient un exemple de stack complet. Il sert de base de départ et doit être adapté à votre endpoint Wazuh réel avant un usage en production.
 
 ### Structure du projet
 
