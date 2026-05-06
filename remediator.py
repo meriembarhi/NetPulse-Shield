@@ -5,7 +5,6 @@ get_remediation_advice(anomaly_description: str) -> str
 """
 
 import sys
-from typing import Optional
 
 import ollama
 import requests
