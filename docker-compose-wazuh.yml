@@ -58,7 +58,7 @@ services:
       - WAZUH_USERNAME=admin
       - WAZUH_PASSWORD=admin
     ports:
-      - "443:5601"      # HTTPS (self-signed)
+      - "8443:5601"      # HTTPS (self-signed)
     volumes:
       - wazuh_dashboard_storage:/usr/share/wazuh-dashboard/data
     networks:
