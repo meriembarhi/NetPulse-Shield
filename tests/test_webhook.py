@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from urllib import error as urllib_error
 
 import pytest

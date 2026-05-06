@@ -38,9 +38,33 @@ def load_webhook_config(explicit_url: str | None = None) -> str | None:
 def _json_safe(value: Any) -> Any:
     """Convertit les objets non serialisables en valeurs JSON sures."""
 
+    if value is None:
+        return None
+
     if isinstance(value, (datetime, date)):
         return value.isoformat()
+
+    # Pandas / NumPy renvoient souvent des scalaires qui ne sont pas JSON natifs.
+    if hasattr(value, "item") and not isinstance(value, (str, bytes, bytearray)):
+        try:
+            return value.item()
+        except Exception:
+            pass
+
     return value
+
+
+def _is_missing(value: Any) -> bool:
+    """Indique si une valeur doit etre consideree comme absente."""
+
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    try:
+        return value != value
+    except Exception:
+        return False
 
 
 def _first_non_empty(payload: Mapping[str, Any], keys: list[str]) -> Any:
@@ -48,7 +72,7 @@ def _first_non_empty(payload: Mapping[str, Any], keys: list[str]) -> Any:
 
     for key in keys:
         value = payload.get(key)
-        if value is not None and value != "":
+        if not _is_missing(value):
             return value
     return None
 
