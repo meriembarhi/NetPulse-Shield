@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   redis:
     image: redis:7
@@ -10,7 +9,7 @@ services:
     ports:
       - '8501:8501'
     environment:
-      - DASHBOARD_TOKEN=${DASHBOARD_TOKEN}
+      - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       - redis
