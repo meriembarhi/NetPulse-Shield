@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # Wazuh Manager (le serveur central)
+  wazuh-manager:
+    image: wazuh/wazuh:4.7.0
+    container_name: wazuh-manager
+    environment:
+      - INDEXER_URL=https://wazuh-indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecurePassword123!
+      - FILEBEAT_SSL_VERIFICATION_MODE=full
+      - SSL_CERTIFICATE_AUTHORITIES=/etc/ssl/certs/ca.crt
+      - SSL_CERTIFICATE=/etc/ssl/certs/wazuh.crt
+      - SSL_KEY=/etc/ssl/certs/wazuh.key
+      - TZ=UTC
+    ports:
+      - "1514:1514"     # Syslog
+      - "1515:1515"     # Agent communication
+      - "514:514/udp"   # UDP
+      - "55000:55000"   # Wazuh API
+    volumes:
+      - wazuh_api_storage:/var/ossec/api/configuration
+      - wazuh_etc_storage:/var/ossec/etc
+      - wazuh_logs_storage:/var/ossec/logs
+      - wazuh_ruleset_storage:/var/ossec/ruleset
+      - ./wazuh-config:/wazuh-config
+    networks:
+      - wazuh-net
+    depends_on:
+      - wazuh-indexer
+    restart: always
+
+  # OpenSearch Indexer (stockage des logs)
+  wazuh-indexer:
+    image: wazuh/wazuh-indexer:4.7.0
+    container_name: wazuh-indexer
+    environment:
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - CLUSTER_NAME=wazuh
+      - DISCOVERY_TYPE=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+    ports:
+      - "9200:9200"
+    volumes:
+      - wazuh_indexer_storage:/usr/share/opensearch/data
+    networks:
+      - wazuh-net
+    restart: always
+
+  # Wazuh Dashboard (interface web)
+  wazuh-dashboard:
+    image: wazuh/wazuh-dashboard:4.7.0
+    container_name: wazuh-dashboard
+    environment:
+      - INDEXER_URL=http://wazuh-indexer:9200
+      - WAZUH_URL=https://wazuh-manager:55000
+      - WAZUH_USERNAME=admin
+      - WAZUH_PASSWORD=admin
+    ports:
+      - "443:5601"      # HTTPS (self-signed)
+    volumes:
+      - wazuh_dashboard_storage:/usr/share/wazuh-dashboard/data
+    networks:
+      - wazuh-net
+    depends_on:
+      - wazuh-indexer
+      - wazuh-manager
+    restart: always
+
+  # NetPulse-Shield (optionnel - si tu veux tout dans Docker)
+  netpulse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: netpulse-shield
+    environment:
+      - NETPULSE_WEBHOOK_URL=http://wazuh-manager:1514
+      - NETPULSE_WEBHOOK_PROFILE=wazuh
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./alerts.csv:/app/alerts.csv
+      - ./alerts.db:/app/alerts.db
+    networks:
+      - wazuh-net
+    depends_on:
+      - wazuh-manager
+    restart: always
+
+volumes:
+  wazuh_api_storage:
+  wazuh_etc_storage:
+  wazuh_logs_storage:
+  wazuh_ruleset_storage:
+  wazuh_indexer_storage:
+  wazuh_dashboard_storage:
+
+networks:
+  wazuh-net:
+    driver: bridge
