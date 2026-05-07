@@ -24,6 +24,7 @@ import pandas as pd
 
 from detector import NetworkAnomalyDetector
 from advisor import NetworkSecurityAdvisor
+from webhook import send_alert_to_azure
 
 # Configure logging
 logging.basicConfig(
@@ -106,6 +107,9 @@ def generate_remediation_report(
     
     try:
         advisor = NetworkSecurityAdvisor(top_k=3)
+        webhook_url = os.getenv("NETPULSE_WEBHOOK_URL")
+        workspace_id = os.getenv("NETPULSE_WORKSPACE_ID")
+        primary_key = os.getenv("NETPULSE_PRIMARY_KEY")
         
         anomalies = results[results['is_anomaly']].copy()
         if len(anomalies) == 0:
@@ -129,6 +133,16 @@ def generate_remediation_report(
             
             logger.info(f"\n[Anomaly {idx}/{min(5, len(anomalies))}] Retrieving advice...")
             advice = advisor.get_remediation_advice(description)
+
+            alert_payload = row.to_dict()
+            alert_payload["description"] = description
+            send_alert_to_azure(
+                alert_payload,
+                webhook_url=webhook_url,
+                advice=advice,
+                workspace_id=workspace_id,
+                primary_key=primary_key,
+            )
             
             report_lines.append(f"[ALERT {idx}] Anomaly Score: {row['anomaly_score']:.4f}")
             report_lines.append("-" * 70)
@@ -140,7 +154,7 @@ def generate_remediation_report(
         report_lines.append("=" * 70)
         
         report_text = "\n".join(report_lines)
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             f.write(report_text)
         
         logger.info(f"\n✅ Security report saved to {output_path}")
