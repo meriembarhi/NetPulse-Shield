@@ -536,7 +536,7 @@ elif page == "Health Check":
                 st.metric("Failed Jobs", stats["jobs_failed"])
         else:
             st.error("❌ Redis Offline")
-            st.code("docker run -p 6379:6379 redis:7")
+            st.code("redis-server")
 
     with col_db:
         st.subheader("Database")

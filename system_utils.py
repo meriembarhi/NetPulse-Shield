@@ -70,8 +70,8 @@ def bulk_enqueue_advice(alert_ids: List[int], db_path: str, redis_url: str) -> i
 
 
 def get_redis_connection_command() -> str:
-    """Return the Docker command to start Redis."""
-    return "docker run -p 6379:6379 redis:7"
+    """Return the command to start Redis."""
+    return "redis-server"
 
 
 def get_worker_start_command() -> str:

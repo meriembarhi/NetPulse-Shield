@@ -16,7 +16,6 @@ NetPulse-Shield analyse le trafic réseau (dataset UNSW-NB15), détecte les anom
 - Envoi optionnel des alertes vers un **SIEM** ou un système externe via **webhook JSON**
 - Tableau de bord **Streamlit** interactif
 - Pipeline complet en une seule commande (`pipeline.py`)
-- Support **Docker + Redis + RQ** pour le traitement en arrière-plan
 
 ---
 
@@ -49,11 +48,6 @@ Tableau de bord interactif :
 
 ```bash
 streamlit run dashboard.py
-```
-Avec Docker (Redis activé) :
-
-```bash
-docker-compose up --build
 ```
 
 ### Deux méthodes de conseils de remédiation
@@ -101,22 +95,14 @@ Ce profil ajoute des champs de contexte SIEM au payload pour faciliter la corré
 - `manager` pour le contexte Wazuh
 - `data` pour les détails de l'alerte
 
-#### Lancement recommandé
+#### Configuration avec Wazuh
 
-1. Démarrer Wazuh avec le fichier [docker-compose-wazuh.yml](docker-compose-wazuh.yml).
-2. Récupérer l'URL HTTP de l'intégration Wazuh.
-3. Configurer NetPulse avec cette URL.
+Pour envoyer des alertes vers Wazuh, configurez les variables d'environnement :
 
 ```bash
-$env:NETPULSE_WEBHOOK_URL = "http://wazuh-manager:PORT/your-http-endpoint"
+$env:NETPULSE_WEBHOOK_URL = "http://your-wazuh-server:PORT/http-endpoint"
 $env:NETPULSE_WEBHOOK_PROFILE = "wazuh"
-docker compose -f docker-compose.yml up
-```
-
-Ou en une seule commande:
-
-```bash
-NETPULSE_WEBHOOK_URL=http://wazuh-manager:PORT/your-http-endpoint NETPULSE_WEBHOOK_PROFILE=wazuh python pipeline.py
+python pipeline.py
 ```
 
 #### Exemple de payload
@@ -137,10 +123,6 @@ NETPULSE_WEBHOOK_URL=http://wazuh-manager:PORT/your-http-endpoint NETPULSE_WEBHO
 ```
 
 Si l'URL webhook n'est pas configurée, le projet continue normalement et l'alerte reste locale.
-
-#### Fichier d'exemple Docker
-
-Le fichier [docker-compose-wazuh.yml](docker-compose-wazuh.yml) contient un exemple de stack complet. Il sert de base de départ et doit être adapté à votre endpoint Wazuh réel avant un usage en production.
 
 ### Structure du projet
 
@@ -171,9 +153,7 @@ NetPulse-Shield
 │   └── tasks.py                 ← Jobs asynchrones (Redis/RQ)
 │
 ├── Utils & Déploiement
-│   ├── system_utils.py
-│   ├── docker-compose.yml
-│   └── Dockerfile
+│   └── system_utils.py
 │
 └── Autres
     ├── tests/                   ← Tests unitaires
@@ -245,19 +225,12 @@ NetPulse-Shield
 ```
 ### Déploiement
 
-Local
-
 ```bash
 python pipeline.py
 streamlit run dashboard.py
-
 ```
 
-Docker
-```bash
-docker-compose up --build
-```
-Tests
+### Tests
 
 ```bash
 pytest tests/ -q

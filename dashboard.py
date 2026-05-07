@@ -422,8 +422,8 @@ elif page == "System Status":
                 st.error(f"Error fetching stats: {queue_stats['error']}")
         else:
             st.error(f"❌ Redis not available: {redis_health.get('error')}")
-            st.info("**To enable background jobs:**")
-            st.code("docker run -p 6379:6379 redis:7", language="bash")
+            st.info("**To enable background jobs, start Redis separately:**")
+            st.code("redis-server", language="bash")
 
     with col2:
         st.subheader("📊 Database")
@@ -482,7 +482,5 @@ elif page == "Control Panel":
 
     st.markdown("---")
     st.subheader("Worker Commands")
-    st.info("To run background workers outside the dashboard, use these commands:")
+    st.info("To run background workers outside the dashboard, use this command:")
     st.code("rq worker advisor", language="bash")
-    st.markdown("**Or with Docker:**")
-    st.code("docker-compose up --build", language="bash")
