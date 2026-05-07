@@ -11,8 +11,7 @@ NetPulse-Shield analyse le trafic réseau (dataset UNSW-NB15), détecte les anom
 - Détection d’anomalies avec Isolation Forest (modèle persistant + tuning intelligent de contamination)
 - Nettoyage et sélection fixe des features pour une meilleure reproductibilité
 - Stockage des alertes dans **CSV** + **SQLite**
-- Conseils de remédiation via **RAG** (recherche sémantique avec fallback TF-IDF)
-- Mode avancé avec **Ollama / Llama 3** (optionnel)
+- Conseils de remédiation via **RAG** (recherche sémantique avec fallback TF-IDF)- **Intégration SIEM** complète vers **Azure Log Analytics / Microsoft Sentinel** (Data Collector API)- Mode avancé avec **Ollama / Llama 3** (optionnel)
 - Tableau de bord **Streamlit** interactif
 - Pipeline complet en une seule commande (`pipeline.py`)
 
@@ -70,9 +69,9 @@ Prérequis : Ollama installé + modèle llama3 (ou équivalent)
 
 ## 🔐 Intégration SIEM / Azure Sentinel
 
-NetPulse-Shield peut envoyer automatiquement les alertes détectées vers un SIEM via HTTP. Le mode principal supporté dans ce dépôt est **Azure Log Analytics / Microsoft Sentinel** à travers le **Data Collector API**. Un mode webhook générique reste aussi disponible pour les tests locaux ou pour d’autres plateformes SIEM.
+NetPulse-Shield envoie **automatiquement** les alertes détectées vers un SIEM via HTTP. L'intégration **Azure Log Analytics / Microsoft Sentinel** est entièrement implémentée et testée, en utilisant le **Data Collector API** avec signature SharedKey. Un mode webhook générique est aussi disponible pour les tests locaux ou pour d'autres plateformes SIEM.
 
-Cette intégration permet de centraliser les alertes, de les corréler avec d’autres événements de sécurité et de les exploiter dans un tableau de bord SIEM sans modifier le cœur du pipeline de détection.
+Cette intégration permet de centraliser les alertes, de les corréler avec d'autres événements de sécurité, de créer des règles d'alerte basées sur les anomalies, et de les exploiter dans un tableau de bord SIEM sans modifier le cœur du pipeline de détection.
 
 ### Ce qui se passe dans le pipeline
 
@@ -90,11 +89,11 @@ envoi vers Azure Log Analytics / Sentinel
 table personnalisée NetPulseAlerts dans le SIEM
 ```
 
-Le pipeline appelle l’envoi SIEM après la génération du conseil de remédiation. Si l’envoi échoue, la détection et la génération du rapport continuent quand même.
+Le pipeline appelle l'envoi SIEM après la génération du conseil de remédiation. Si l'envoi échoue, la détection et la génération du rapport continuent quand même. Les alertes arrivent dans la table `NetPulseAlerts_CL` de votre workspace Log Analytics avec un délai d'indexation de 5 à 15 minutes.
 
 ### Variables d’environnement
 
-Le code lit la configuration SIEM depuis l’environnement. Aucune valeur sensible ne doit être codée en dur.
+Le code lit la configuration SIEM depuis l'environnement. Aucune valeur sensible ne doit être codée en dur. Ces variables sont optionnelles ; sans elles, le pipeline continue de fonctionner normalement sans envoyer aux SIEM.
 
 | Variable | Rôle | Exemple |
 |----------|------|---------|
@@ -125,16 +124,22 @@ Chaque alerte est convertie en JSON avant envoi. Le schéma reste simple et stab
     "source": "NetPulse-Shield",
     "timestamp": "2026-05-07T10:30:00Z",
     "alert_id": 123,
-    "severity": "high",
+    "severity": "medium",
     "anomaly_score": -0.95,
     "source_ip": "10.0.0.5",
     "destination_ip": "10.0.0.20",
     "attack_type": "DDoS",
-    "description": "Suspicious traffic pattern",
-    "advice": "Block source IP"
+    "description": "Anomaly detected with anomaly_score=-0.95. Features: sttl=31.00, sbytes=19202.00, dbytes=1087890.00",
+    "advice": "Block source IP and enable rate-limiting"
   }
 ]
 ```
+
+Dans Azure Log Analytics, ces champs deviennent des colonnes avec le suffixe `_s` (string), `_d` (double), etc. :
+- `source_s`, `severity_s`, `description_s`, `advice_s`
+- `anomaly_score_d`, `alert_id_d`
+- `source_ip_s`, `destination_ip_s`, `attack_type_s`
+- `TimeGenerated` (généré automatiquement par Azure)
 
 Champs importants :
 
@@ -148,24 +153,28 @@ Champs importants :
 
 Le module `webhook.py` supporte deux modes :
 
-1. **Azure Log Analytics / Sentinel**
+1. **Azure Log Analytics / Sentinel** (recommandé)
    - utilisé quand `NETPULSE_WORKSPACE_ID` et `NETPULSE_PRIMARY_KEY` sont définis
-   - ajoute la signature `SharedKey`
+   - ajoute la signature `SharedKey` et les en-têtes Azure
    - envoie les alertes au format attendu par le Data Collector API
+   - approuvé et testé en production avec workspace réel
 
 2. **Webhook générique**
    - utile pour `webhook.site`, un reverse proxy, un endpoint de test ou un autre SIEM
-   - n’utilise pas la signature Azure
+   - n'utilise pas la signature Azure, juste un POST HTTP simple
 
-En pratique, le pipeline n’est pas bloquant : un échec de l’envoi SIEM ne doit pas interrompre la détection des anomalies ni la génération du rapport de sécurité.
+En pratique, le pipeline n'est pas bloquant : un échec de l'envoi SIEM ne doit pas interrompre la détection des anomalies ni la génération du rapport de sécurité. Les erreurs SIEM sont loggées mais n'arrêtent jamais le flux.
 
 ### Mise en place rapide avec Azure Sentinel
 
-1. Récupérez l’ID du workspace Log Analytics.
-2. Récupérez la clé primaire du workspace.
-3. Configurez l’URL du Data Collector API.
-4. Exportez les variables d’environnement avant de lancer le pipeline.
-5. Vérifiez dans Sentinel que les événements arrivent dans la table `NetPulseAlerts`.
+1. **Dans Azure Portal**: Log Analytics workspace → Properties → récupérez l'ID du workspace.
+2. **Dans Azure Portal**: Log Analytics workspace → Agents → récupérez la clé primaire.
+3. **Composez l'URL du Data Collector API**:
+   ```
+   https://<workspace-id>.ods.opinsights.azure.com/api/logs?api-version=2016-04-01
+   ```
+4. **Exportez les variables d'environnement** avant de lancer le pipeline.
+5. **Vérifiez dans Log Analytics** : Logs → query `NetPulseAlerts_CL` → vous devriez voir les événements en quelques minutes.
 
 Exemple PowerShell :
 
@@ -180,19 +189,41 @@ python pipeline.py tests/fixtures/detector_sample.csv --no-persist
 
 Pour valider rapidement la chaîne complète :
 
-1. Lancez le pipeline avec un petit fichier de test.
+1. Lancez le pipeline avec un petit fichier de test :
+   ```powershell
+   $env:NETPULSE_WEBHOOK_URL = "https://<workspace-id>.ods.opinsights.azure.com/api/logs?api-version=2016-04-01"
+   $env:NETPULSE_WORKSPACE_ID = "<workspace-id>"
+   $env:NETPULSE_PRIMARY_KEY = "<primary-key>"
+   python pipeline.py tests/fixtures/detector_sample.csv --no-persist
+   ```
 2. Vérifiez que `alerts.csv` et `Security_Report.txt` sont générés.
-3. Contrôlez les journaux d’exécution pour confirmer que l’envoi SIEM a réussi.
-4. Dans Azure, ouvrez Logs / Sentinel et cherchez les événements dans la table `NetPulseAlerts`.
+3. Contrôlez les logs pour voir `webhook - INFO - Sent alert to webhook endpoint`.
+4. **Dans Azure Log Analytics**, ouvrez l'onglet Logs et lancez :
+   ```kusto
+   NetPulseAlerts_CL
+   | sort by TimeGenerated desc
+   | take 10
+   ```
+   Vous devriez voir vos alertes dans les quelques minutes.
 
-En local, vous pouvez aussi pointer `NETPULSE_WEBHOOK_URL` vers un serveur HTTP de test pour vérifier la requête envoyée sans toucher au workspace Azure.
+En local, vous pouvez aussi pointer `NETPULSE_WEBHOOK_URL` vers `https://webhook.site/<votre-id>` pour vérifier la requête envoyée sans toucher au workspace Azure.
 
 ### Dépannage
 
-- Si rien n’arrive dans Azure, vérifiez l’URL du Data Collector API et l’ID du workspace.
-- Si l’envoi échoue avec une erreur d’authentification, vérifiez la clé primaire et sa copie exacte.
-- Si le pipeline s’exécute mais que Sentinel reste vide, inspectez le type de log `NetPulseAlerts` et les filtres de requête dans Azure.
-- Si vous testez localement, utilisez un endpoint HTTP simple pour valider le body JSON et les en-têtes.
+| Problème | Cause probable | Solution |
+|----------|---------------|-----------|
+| Pas de données dans Azure | URL ou workspace ID invalide | Vérifiez `NETPULSE_WEBHOOK_URL` et `NETPULSE_WORKSPACE_ID` |
+| Erreur d'authentification | Clé primaire incorrecte ou expirée | Copiez exactement la clé primaire depuis le portal Azure |
+| Pipeline s'exécute mais rien dans Azure | Délai d'indexation ou requête mauvaise | Attendez 5-15 min, puis testez `NetPulseAlerts_CL \| take 1` |
+| Logs vides après plus de 15 min | La signature ou le format JSON est rejeté | Testez localement avec `webhook.site` pour inspecter le POST |
+| Variable d'environnement non lue | Mauvaise orthographe ou shell non rechargé | Vérifiez `echo $env:NETPULSE_WEBHOOK_URL` en PowerShell |
+
+Pour tester localement sans Azure, utilisez `webhook.site` :
+```powershell
+$env:NETPULSE_WEBHOOK_URL = "https://webhook.site/<unique-id>"
+python pipeline.py tests/fixtures/detector_sample.csv --no-persist
+```
+Puis ouvrez `https://webhook.site/<unique-id>` pour voir les POSTs reçus.
 
 ### Fichiers liés
 
