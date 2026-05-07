@@ -2,7 +2,6 @@ import json
 import os
 
 from db import Alert, AuditLog, get_session
-from webhook import send_alert_via_webhook
 
 def generate_advice_for_alert(alert_id: int, db_path: str = 'sqlite:///alerts.db'):
     """Task function to generate advice for a single alert.
@@ -33,24 +32,6 @@ def generate_advice_for_alert(alert_id: int, db_path: str = 'sqlite:///alerts.db
     advice = advisor.get_remediation_advice(description)
 
     alert.advice = advice
-
-    # On envoie aussi l'alerte vers le SIEM si un webhook a ete configure.
-    # Cette etape reste optionnelle et ne doit jamais bloquer le worker.
-    webhook_payload = {
-        "alert_id": alert.id,
-        "anomaly_score": alert.anomaly_score,
-        "severity": getattr(alert, "severity", None),
-        "description": description,
-        "advice": advice,
-    }
-    try:
-        features = json.loads(alert.feature_json or "{}")
-        webhook_payload.update(features)
-    except Exception:
-        pass
-
-    webhook_profile = os.getenv("NETPULSE_WEBHOOK_PROFILE", "generic")
-    send_alert_via_webhook(webhook_payload, advice=advice, profile=webhook_profile)
 
     # Enregistrement de l'audit local pour tracer la generation des conseils.
     session.add(AuditLog(alert_id=alert.id, action='advice_generated', actor='worker'))

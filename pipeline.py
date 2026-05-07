@@ -24,7 +24,6 @@ import pandas as pd
 
 from detector import NetworkAnomalyDetector
 from advisor import NetworkSecurityAdvisor
-from webhook import send_alert_via_webhook
 
 # Configure logging
 logging.basicConfig(
@@ -99,8 +98,6 @@ def save_alerts_csv(results: pd.DataFrame, output_path: str = "alerts.csv") -> N
 def generate_remediation_report(
     results: pd.DataFrame,
     output_path: str = "Security_Report.txt",
-    webhook_url: str | None = None,
-    webhook_profile: str | None = None,
 ) -> None:
     """Generate remediation advice for detected anomalies."""
     logger.info("\n" + "="*60)
@@ -132,19 +129,6 @@ def generate_remediation_report(
             
             logger.info(f"\n[Anomaly {idx}/{min(5, len(anomalies))}] Retrieving advice...")
             advice = advisor.get_remediation_advice(description)
-
-            # Envoi best-effort vers un SIEM ou systeme externe via webhook.
-            # L'echec de cet appel ne doit pas interrompre le pipeline.
-            alert_payload = row.to_dict()
-            alert_payload["alert_id"] = alert_payload.get("alert_id") or alert_payload.get("id") or idx
-            alert_payload["description"] = description
-            alert_payload["advice"] = advice
-            send_alert_via_webhook(
-                alert_payload,
-                webhook_url=webhook_url,
-                advice=advice,
-                profile=webhook_profile,
-            )
             
             report_lines.append(f"[ALERT {idx}] Anomaly Score: {row['anomaly_score']:.4f}")
             report_lines.append("-" * 70)
@@ -197,17 +181,7 @@ Examples:
         default='Security_Report.txt',
         help='Output path for security report (default: Security_Report.txt)'
     )
-    parser.add_argument(
-        '--webhook-url',
-        default=None,
-        help='Webhook URL for sending alerts to an external SIEM (optional)'
-    )
-    parser.add_argument(
-        '--webhook-profile',
-        default=None,
-        choices=['generic', 'wazuh'],
-        help='Webhook payload profile (generic or wazuh)'
-    )
+
     
     args = parser.parse_args()
     
@@ -230,8 +204,6 @@ Examples:
     generate_remediation_report(
         results,
         args.report,
-        webhook_url=args.webhook_url,
-        webhook_profile=args.webhook_profile,
     )
     
     logger.info("\n" + "="*60)
