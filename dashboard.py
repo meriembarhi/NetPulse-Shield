@@ -7,6 +7,7 @@ import streamlit as st
 from db import Alert, AuditLog, create_db, get_session
 from detector import NetworkAnomalyDetector
 from system_utils import bulk_enqueue_advice, check_redis_health, get_job_status, get_queue_stats
+from webhook import load_webhook_config, load_webhook_profile, send_alert_via_webhook
 
 
 st.set_page_config(
@@ -41,6 +42,26 @@ def load_csv(file_path: str) -> pd.DataFrame | None:
 
 def get_db_session():
     return get_session(DB_PATH)
+
+
+def get_siem_status() -> tuple[str | None, str]:
+    return load_webhook_config(), load_webhook_profile()
+
+
+def forward_alerts_to_siem(alerts_df: pd.DataFrame, limit: int = 10) -> int:
+    webhook_url, profile = get_siem_status()
+    if not webhook_url or alerts_df is None or len(alerts_df) == 0:
+        return 0
+
+    sent = 0
+    for _, row in alerts_df.head(limit).iterrows():
+        alert_payload = row.to_dict()
+        alert_payload["alert_id"] = alert_payload.get("alert_id") or alert_payload.get("id") or sent + 1
+        alert_payload["description"] = alert_payload.get("description") or f"NetPulse anomaly score {alert_payload.get('anomaly_score')}"
+        if send_alert_via_webhook(alert_payload, webhook_url=webhook_url, profile=profile):
+            sent += 1
+
+    return sent
 
 
 st.sidebar.title("🛡️ NetPulse Command")
@@ -176,7 +197,7 @@ if st.sidebar.button("🤖 2. Generate AI Advice"):
 st.sidebar.markdown("---")
 page = st.sidebar.radio(
     "Navigation",
-    ["Overview", "EDA & Insights", "Detected Alerts", "Security Report", "Audit Logs", "System Status", "Control Panel"],
+    ["Overview", "EDA & Insights", "Detected Alerts", "SIEM View", "Security Report", "Audit Logs", "System Status", "Control Panel"],
 )
 
 data = load_csv(DATA_FILE)
@@ -188,6 +209,8 @@ if session is not None:
 
 st.title("🛡️ NetPulse-Shield Dashboard")
 st.caption("Local network anomaly detection and remediation dashboard")
+
+siem_url, siem_profile = get_siem_status()
 
 if page == "Overview":
     st.header("📊 Network Overview")
@@ -293,6 +316,64 @@ elif page == "Detected Alerts":
                     st.success("Status updated")
     else:
         st.info("No alerts available yet.")
+
+elif page == "SIEM View":
+    st.header("🔗 SIEM Integration & Visualization")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("SIEM Status", "Connected" if siem_url else "Not configured")
+    col2.metric("SIEM Profile", siem_profile)
+    col3.metric("Kibana", "http://localhost:5601")
+
+    if siem_url:
+        st.success(f"Alerts will be sent to: {siem_url}")
+    else:
+        st.warning("Set NETPULSE_WEBHOOK_URL to connect this dashboard to the SIEM.")
+
+    if alerts is not None and len(alerts) > 0:
+        alerts_view = alerts.copy()
+        if "created_at" in alerts_view.columns:
+            alerts_view["created_at"] = pd.to_datetime(alerts_view["created_at"], errors="coerce")
+
+        vis_col1, vis_col2 = st.columns(2)
+        with vis_col1:
+            st.subheader("Anomaly Score Distribution")
+            if "anomaly_score" in alerts_view.columns:
+                fig_scores = px.histogram(
+                    alerts_view,
+                    x="anomaly_score",
+                    nbins=20,
+                    color="severity" if "severity" in alerts_view.columns else None,
+                    color_discrete_sequence=["#238636", "#d29922", "#da3633"],
+                )
+                st.plotly_chart(fig_scores, use_container_width=True)
+            else:
+                st.info("No anomaly_score column available in alerts data.")
+
+        with vis_col2:
+            st.subheader("Alerts Over Time")
+            if "created_at" in alerts_view.columns and "anomaly_score" in alerts_view.columns:
+                fig_time = px.scatter(
+                    alerts_view,
+                    x="created_at",
+                    y="anomaly_score",
+                    color="severity" if "severity" in alerts_view.columns else None,
+                    hover_data=[c for c in ["id", "status", "advice_status"] if c in alerts_view.columns],
+                )
+                st.plotly_chart(fig_time, use_container_width=True)
+            else:
+                st.info("Alerts need created_at and anomaly_score to plot the timeline.")
+
+        st.subheader("Forward Recent Alerts to SIEM")
+        forward_limit = st.slider("Alerts to forward", min_value=1, max_value=min(25, len(alerts)), value=min(10, len(alerts)))
+        if st.button("Send latest alerts to SIEM", key="send_to_siem"):
+            forwarded = forward_alerts_to_siem(alerts, limit=forward_limit)
+            st.success(f"Forwarded {forwarded} alerts to the SIEM.")
+
+        st.subheader("Recent Alert Records")
+        st.dataframe(alerts.head(20), use_container_width=True)
+    else:
+        st.info("Run the anomaly detection first to populate SIEM-linked alerts.")
 
 elif page == "Security Report":
     st.header("🛡️ Security Report")
