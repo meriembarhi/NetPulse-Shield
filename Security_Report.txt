@@ -2,7 +2,7 @@
 🛡️  NETPULSE-SHIELD: AI SECURITY REPORT
 ======================================================================
 
-[ALERT 1] Anomaly Score: -0.0300
+[ALERT 1] Anomaly Score: -0.0250
 ----------------------------------------------------------------------
 [Guidance 1]
 # DDoS Attack Remediation
@@ -24,9 +24,9 @@ Remediation: 1. Block C2 IP/domain at firewall. 2. Inspect outbound DNS queries.
 
 ---
 ℹ️  Remediation retrieved from knowledge base (2 sources)
-   Query: "Anomaly detected with anomaly_score=-0.0300. Features: sttl=..."
+   Query: "Anomaly detected with anomaly_score=-0.0250. Features: sttl=..."
 
-[ALERT 2] Anomaly Score: -0.0767
+[ALERT 2] Anomaly Score: -0.0110
 ----------------------------------------------------------------------
 [Guidance 1]
 # DDoS Attack Remediation
@@ -48,79 +48,7 @@ Remediation: 1. Block C2 IP/domain at firewall. 2. Inspect outbound DNS queries.
 
 ---
 ℹ️  Remediation retrieved from knowledge base (2 sources)
-   Query: "Anomaly detected with anomaly_score=-0.0767. Features: sttl=..."
-
-[ALERT 3] Anomaly Score: -0.0106
-----------------------------------------------------------------------
-[Guidance 1]
-# DDoS Attack Remediation
-Indicators: Sudden spike in packets_per_second, high bytes_sent.
-Remediation: 1. Enable rate-limiting. 2. Activate scrubbing services.
-
-# Lateral Movement Remediation
-Indicators: Internal scanning of SMB/port 445, unusual SSH connections between internal workstations.
-Remediation: 1. Isolate compromised hosts. 2. Implement micro-segmentation. 3. Audit internal access logs.
-
-[Guidance 2]
-# Credential Stuffing Remediation
-Indicators: High frequency of failed login attempts on SSH (22) or Web (443) from the same source.
-Remediation: 1. Ban source IP via Fail2Ban. 2. Enforce MFA. 3. Reset affected passwords.
-
-# C2 (Command & Control) Remediation
-Indicators: Periodic beaconing to external IPs, unauthorized DNS tunneling, unusual outbound traffic.
-Remediation: 1. Block C2 IP/domain at firewall. 2. Inspect outbound DNS queries. 3. Sinkhole malicious domains.
-
----
-ℹ️  Remediation retrieved from knowledge base (2 sources)
-   Query: "Anomaly detected with anomaly_score=-0.0106. Features: sttl=..."
-
-[ALERT 4] Anomaly Score: -0.0003
-----------------------------------------------------------------------
-[Guidance 1]
-# DDoS Attack Remediation
-Indicators: Sudden spike in packets_per_second, high bytes_sent.
-Remediation: 1. Enable rate-limiting. 2. Activate scrubbing services.
-
-# Lateral Movement Remediation
-Indicators: Internal scanning of SMB/port 445, unusual SSH connections between internal workstations.
-Remediation: 1. Isolate compromised hosts. 2. Implement micro-segmentation. 3. Audit internal access logs.
-
-[Guidance 2]
-# Credential Stuffing Remediation
-Indicators: High frequency of failed login attempts on SSH (22) or Web (443) from the same source.
-Remediation: 1. Ban source IP via Fail2Ban. 2. Enforce MFA. 3. Reset affected passwords.
-
-# C2 (Command & Control) Remediation
-Indicators: Periodic beaconing to external IPs, unauthorized DNS tunneling, unusual outbound traffic.
-Remediation: 1. Block C2 IP/domain at firewall. 2. Inspect outbound DNS queries. 3. Sinkhole malicious domains.
-
----
-ℹ️  Remediation retrieved from knowledge base (2 sources)
-   Query: "Anomaly detected with anomaly_score=-0.0003. Features: sttl=..."
-
-[ALERT 5] Anomaly Score: -0.0450
-----------------------------------------------------------------------
-[Guidance 1]
-# DDoS Attack Remediation
-Indicators: Sudden spike in packets_per_second, high bytes_sent.
-Remediation: 1. Enable rate-limiting. 2. Activate scrubbing services.
-
-# Lateral Movement Remediation
-Indicators: Internal scanning of SMB/port 445, unusual SSH connections between internal workstations.
-Remediation: 1. Isolate compromised hosts. 2. Implement micro-segmentation. 3. Audit internal access logs.
-
-[Guidance 2]
-# Credential Stuffing Remediation
-Indicators: High frequency of failed login attempts on SSH (22) or Web (443) from the same source.
-Remediation: 1. Ban source IP via Fail2Ban. 2. Enforce MFA. 3. Reset affected passwords.
-
-# C2 (Command & Control) Remediation
-Indicators: Periodic beaconing to external IPs, unauthorized DNS tunneling, unusual outbound traffic.
-Remediation: 1. Block C2 IP/domain at firewall. 2. Inspect outbound DNS queries. 3. Sinkhole malicious domains.
-
----
-ℹ️  Remediation retrieved from knowledge base (2 sources)
-   Query: "Anomaly detected with anomaly_score=-0.0450. Features: sttl=..."
+   Query: "Anomaly detected with anomaly_score=-0.0110. Features: sttl=..."
 
 ======================================================================
 End of Report
