@@ -6,6 +6,7 @@ import streamlit as st
 
 from db import Alert, AuditLog, create_db, get_session
 from detector import NetworkAnomalyDetector
+from webhook import load_webhook_config, load_webhook_profile, send_alert_via_webhook
 from system_utils import bulk_enqueue_advice, check_redis_health, get_job_status, get_queue_stats
 
 
