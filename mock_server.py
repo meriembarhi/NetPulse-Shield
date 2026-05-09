@@ -1,6 +1,4 @@
 ﻿import http.server
-import json
-import base64
 
 class MockAzureHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):

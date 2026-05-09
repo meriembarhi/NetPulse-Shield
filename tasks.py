@@ -1,5 +1,4 @@
 import json
-import os
 
 from db import Alert, AuditLog, get_session
 
