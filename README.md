@@ -2,16 +2,18 @@
 
 **Système intelligent de détection d’anomalies réseau avec conseils de remédiation**
 
-NetPulse-Shield analyse le trafic réseau (dataset UNSW-NB15), détecte les anomalies avec **Isolation Forest**, stocke les alertes et fournit des conseils de sécurité via un système **RAG** (recommandé) ou en option avec **Llama 3 via Ollama**.
+NetPulse-Shield analyse le trafic réseau (dataset UNSW-NB15), détecte les anomalies avec **Isolation Forest**, stocke les alertes et fournit des conseils de sécurité via un système **RAG** (par défaut) ou en option avec **Llama 3 via Ollama**.
 
 ---
 
 ## ✨ Fonctionnalités principales
 
 - Détection d’anomalies avec Isolation Forest (modèle persistant + tuning intelligent de contamination)
-- Nettoyage et sélection fixe des features pour une meilleure reproductibilité
+- Nettoyage avec un jeu de 12 features domaine-guidées pour une meilleure reproductibilité
 - Stockage des alertes dans **CSV** + **SQLite**
-- Conseils de remédiation via **RAG** (recherche sémantique avec fallback TF-IDF)- **Intégration SIEM** complète vers **Azure Log Analytics / Microsoft Sentinel** (Data Collector API)- Mode avancé avec **Ollama / Llama 3** (optionnel)
+- Conseils de remédiation via **RAG** (recherche sémantique avec fallback TF-IDF)
+- Intégration SIEM via **Azure Log Analytics / Microsoft Sentinel** ou un webhook générique
+- Mode avancé avec **Ollama / Llama 3** (optionnel)
 - Tableau de bord **Streamlit** interactif
 - Pipeline complet en une seule commande (`pipeline.py`)
 
@@ -69,7 +71,7 @@ Prérequis : Ollama installé + modèle llama3 (ou équivalent)
 
 ## 🔐 Intégration SIEM / Azure Sentinel
 
-NetPulse-Shield envoie **automatiquement** les alertes détectées vers un SIEM via HTTP. L'intégration **Azure Log Analytics / Microsoft Sentinel** est entièrement implémentée et testée, en utilisant le **Data Collector API** avec signature SharedKey. Un mode webhook générique est aussi disponible pour les tests locaux ou pour d'autres plateformes SIEM.
+NetPulse-Shield peut envoyer les alertes détectées vers un SIEM via HTTP. L'intégration **Azure Log Analytics / Microsoft Sentinel** utilise le **Data Collector API** avec signature SharedKey lorsque `NETPULSE_WORKSPACE_ID` et `NETPULSE_PRIMARY_KEY` sont définis. Un mode webhook générique est aussi disponible pour les tests locaux ou pour d'autres plateformes SIEM.
 
 Cette intégration permet de centraliser les alertes, de les corréler avec d'autres événements de sécurité, de créer des règles d'alerte basées sur les anomalies, et de les exploiter dans un tableau de bord SIEM sans modifier le cœur du pipeline de détection.
 
@@ -89,7 +91,7 @@ envoi vers Azure Log Analytics / Sentinel
 table personnalisée NetPulseAlerts dans le SIEM
 ```
 
-Le pipeline appelle l'envoi SIEM après la génération du conseil de remédiation. Si l'envoi échoue, la détection et la génération du rapport continuent quand même. Les alertes arrivent dans la table `NetPulseAlerts_CL` de votre workspace Log Analytics avec un délai d'indexation de 5 à 15 minutes.
+Le pipeline appelle l'envoi SIEM après la génération du conseil de remédiation. Si l'envoi échoue, la détection et la génération du rapport continuent quand même. Dans Azure Log Analytics, la table d’ingestion apparaît généralement sous la forme `NetPulseAlerts_CL` après indexation.
 
 ### Variables d’environnement
 
@@ -157,7 +159,7 @@ Le module `webhook.py` supporte deux modes :
    - utilisé quand `NETPULSE_WORKSPACE_ID` et `NETPULSE_PRIMARY_KEY` sont définis
    - ajoute la signature `SharedKey` et les en-têtes Azure
    - envoie les alertes au format attendu par le Data Collector API
-   - approuvé et testé en production avec workspace réel
+    - couvert par des tests unitaires de la requête et de la signature
 
 2. **Webhook générique**
    - utile pour `webhook.site`, un reverse proxy, un endpoint de test ou un autre SIEM
@@ -257,7 +259,7 @@ NetPulse-Shield
 ├── Données & Persistance
 │   ├── db.py                    ← SQLite (Alertes + AuditLog)
 │   ├── clean_data.py            ← Préparation des données
-│   └── tasks.py                 ← Jobs asynchrones (Redis/RQ)
+│   └── tasks.py                 ← Fonction worker pour RQ, avec fallback synchrone côté dashboard
 │
 ├── Utils & Déploiement
 │   └── system_utils.py
@@ -265,7 +267,7 @@ NetPulse-Shield
 └── Autres
     ├── tests/                   ← Tests unitaires
     ├── models/                  ← Modèles sauvegardés (.joblib)
-    └── data/                    ← Données traitéesplet
+    └── data/                    ← Données traitées
 
 ```
 ### Pipeline Principal (Flux Complet)
@@ -345,11 +347,10 @@ ruff check .
 ```
 ### Troubleshooting
 
--Données manquantes → Exécute python clean_data.py
--Redis non disponible → Le dashboard passe automatiquement en mode synchrone
--Ollama non lancé → Le RAG continue de fonctionner normalement
-
--Problème de schéma → Relance clean_data.py puis pipeline.py
+- Données manquantes → Exécute `python clean_data.py`
+- Redis non disponible → Le dashboard passe automatiquement en mode synchrone
+- Ollama non lancé → Le RAG continue de fonctionner normalement
+- Problème de schéma → Relance `python clean_data.py` puis `python pipeline.py`
 
 ### License
 MIT License
