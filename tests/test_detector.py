@@ -1,5 +1,6 @@
 """Tests for the network anomaly detector using realistic CSV-shaped data."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -60,3 +61,50 @@ def test_analyze_requires_at_least_one_numeric_feature(tmp_path):
 
     with pytest.raises(ValueError):
         detector.analyze(df, force_train=True)
+
+
+def test_analyze_writes_metrics_json_when_labels_present(tmp_path):
+    df = load_detector_fixture()
+    detector = make_detector(tmp_path)
+    out = tmp_path / "out" / "metrics.json"
+    detector.analyze(df, force_train=True, metrics_output_path=str(out))
+
+    assert out.exists()
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert "timestamp" in payload
+    assert payload["n_rows"] == len(df)
+    assert "metrics" in payload
+    assert "f1" in payload["metrics"]
+    assert "confusion_matrix" in payload["metrics"]
+    assert payload["metrics"]["confusion_matrix"]["counts"] == [
+        [payload["metrics"]["true_negatives"], payload["metrics"]["false_positives"]],
+        [payload["metrics"]["false_negatives"], payload["metrics"]["true_positives"]],
+    ]
+
+
+def test_analyze_flags_clear_outlier(tmp_path):
+    """Isolation Forest should flag an extreme point among near-duplicate normals."""
+    rng = np.random.default_rng(42)
+    n_normal = 60
+    base = rng.normal(0.0, 1.0, size=(n_normal, 3))
+    df = pd.DataFrame(base, columns=["f1", "f2", "f3"])
+    df["Label"] = 0
+    outlier = pd.DataFrame([{"f1": 1e9, "f2": -1e9, "f3": 1e9, "Label": 0}])
+    df = pd.concat([df, outlier], ignore_index=True)
+    # One benign-labeled row so evaluate() sees both label values (avoids ROC undefined warnings).
+    df.loc[n_normal // 2, "Label"] = 1
+
+    detector = make_detector(tmp_path, contamination=0.15)
+    results = detector.analyze(df, force_train=True)
+
+    assert results["is_anomaly"].sum() >= 1
+    assert bool(results.loc[len(df) - 1, "is_anomaly"]) is True
+
+
+def test_tune_contamination_returns_a_default_candidate(tmp_path):
+    df = load_detector_fixture()
+    detector = make_detector(tmp_path, contamination=0.1)
+    best = detector.tune_contamination(df, label_column="Label")
+    default_candidates = [0.01, 0.02, 0.03, 0.05, 0.08, 0.10, 0.15, 0.20]
+    assert best in default_candidates
+    assert isinstance(best, float)

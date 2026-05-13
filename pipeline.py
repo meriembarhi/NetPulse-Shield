@@ -7,6 +7,7 @@ This script orchestrates the complete NetPulse-Shield workflow:
   2. Detect anomalies using Isolation Forest (tunes contamination on a validation split when a Label column exists — same behavior as running detector.py directly)
   3. Generate remediation advice for flagged alerts
   4. Produce a comprehensive security report
+  5. When labels exist, write evaluation metrics to metrics.json (path configurable with --metrics)
 
 Usage:
   python pipeline.py                              # Use default data/final_project_data.csv
@@ -57,7 +58,11 @@ def validate_csv(csv_path: str) -> pd.DataFrame:
         sys.exit(1)
 
 
-def run_anomaly_detection(df: pd.DataFrame, persist_to_db: bool = True) -> pd.DataFrame:
+def run_anomaly_detection(
+    df: pd.DataFrame,
+    persist_to_db: bool = True,
+    metrics_output_path: str | None = "metrics.json",
+) -> pd.DataFrame:
     """Run anomaly detection using Isolation Forest."""
     logger.info("\n" + "="*60)
     logger.info("STEP 1: ANOMALY DETECTION (Isolation Forest)")
@@ -84,7 +89,17 @@ def run_anomaly_detection(df: pd.DataFrame, persist_to_db: bool = True) -> pd.Da
                 "use default auto contamination when labels are absent."
             )
 
-        results = detector.analyze(df, force_train=True)
+        if metrics_output_path and "Label" not in df.columns:
+            logger.info(
+                "Metrics output path set but CSV has no 'Label' column — "
+                "skipping metrics.json (no ground truth to evaluate)."
+            )
+
+        results = detector.analyze(
+            df,
+            force_train=True,
+            metrics_output_path=metrics_output_path,
+        )
         
         anomalies = results[results['is_anomaly']]
         logger.info("\n✅ Detection Complete:")
@@ -210,6 +225,12 @@ Examples:
         default='Security_Report.txt',
         help='Output path for security report (default: Security_Report.txt)'
     )
+    parser.add_argument(
+        '--metrics',
+        default='metrics.json',
+        help='Path for evaluation metrics JSON when Label column exists (default: metrics.json). '
+        'Use empty string to skip writing metrics.',
+    )
 
     
     args = parser.parse_args()
@@ -223,8 +244,14 @@ Examples:
     logger.info("="*60)
     df = validate_csv(args.csv_path)
     
+    metrics_path = args.metrics.strip() or None
+
     # ===== STEP 2: Run Anomaly Detection =====
-    results = run_anomaly_detection(df, persist_to_db=not args.no_persist)
+    results = run_anomaly_detection(
+        df,
+        persist_to_db=not args.no_persist,
+        metrics_output_path=metrics_path,
+    )
     
     # ===== STEP 3: Save Alerts =====
     save_alerts_csv(results, args.alerts_csv)
@@ -241,6 +268,8 @@ Examples:
     logger.info("\nOutput files:")
     logger.info(f"  • {args.alerts_csv} — Top 10 anomalies detected")
     logger.info(f"  • {args.report} — Remediation advice for top 5 anomalies")
+    if metrics_path:
+        logger.info(f"  • {metrics_path} — Evaluation metrics (when Label column is present)")
     logger.info("  • alerts.db — Alert database (if --no-persist not used)")
     logger.info("\nNext steps:")
     logger.info("  • Review alerts in alerts.csv")

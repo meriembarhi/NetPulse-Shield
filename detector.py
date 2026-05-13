@@ -8,7 +8,8 @@ import json
 import logging
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any, Optional
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
@@ -21,6 +22,35 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively convert numpy scalars and similar types for json.dump."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, (np.integer, np.floating)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, str) or obj is None:
+        return obj
+    if isinstance(obj, (int, float)):
+        return obj
+    return str(obj)
+
+
+def _write_metrics_json(filepath: str, payload: dict) -> None:
+    parent = os.path.dirname(os.path.abspath(filepath))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(_json_safe(payload), f, indent=2)
 
 
 class NetworkAnomalyDetector:
@@ -216,7 +246,8 @@ class NetworkAnomalyDetector:
         f1         = f1_score(y_true_bin, y_pred, zero_division=0)
         roc_auc    = roc_auc_score(y_true_bin, y_scores)
 
-        tn, fp, fn, tp = confusion_matrix(y_true_bin, y_pred).ravel()
+        cm = confusion_matrix(y_true_bin, y_pred, labels=[0, 1])
+        tn, fp, fn, tp = cm.ravel()
         fpr = fp / max(tn + fp, 1)
 
         metrics = {
@@ -229,6 +260,11 @@ class NetworkAnomalyDetector:
             "false_positives":     int(fp),
             "false_negatives":     int(fn),
             "true_negatives":      int(tn),
+            "confusion_matrix": {
+                "rows": ["actual_normal (0)", "actual_attack (1)"],
+                "cols": ["pred_normal (0)", "pred_anomaly (1)"],
+                "counts": [[int(tn), int(fp)], [int(fn), int(tp)]],
+            },
         }
 
         print("\n" + "=" * 50)
@@ -346,8 +382,17 @@ class NetworkAnomalyDetector:
     # Main analysis method
     # ------------------------------------------------------------------
 
-    def analyze(self, df: pd.DataFrame, force_train: bool = False) -> pd.DataFrame:
-        """Analyze dataframe for anomalies with defensive validation and logging."""
+    def analyze(
+        self,
+        df: pd.DataFrame,
+        force_train: bool = False,
+        metrics_output_path: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Analyze dataframe for anomalies with defensive validation and logging.
+
+        If ``Label`` is present and ``metrics_output_path`` is set, writes a JSON file
+        with evaluation metrics and confusion matrix after scoring.
+        """
         if df is None or len(df) == 0:
             raise ValueError("Input dataframe is empty or None. Cannot analyze.")
         
@@ -391,7 +436,24 @@ class NetworkAnomalyDetector:
         logger.info(f"Detection complete: {n_anomalies} anomalies found ({100*n_anomalies/len(results):.2f}%)")
 
         if y_true is not None:
-            self.evaluate(X, y_true)
+            metrics = self.evaluate(X, y_true)
+            if metrics_output_path and metrics:
+                payload = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "n_rows": int(len(results)),
+                    "n_anomalies_flagged": int(n_anomalies),
+                    "contamination": float(self.contamination),
+                    "n_estimators": int(self.n_estimators),
+                    "model_path": self.model_path,
+                    "metrics": metrics,
+                }
+                try:
+                    _write_metrics_json(metrics_output_path, payload)
+                    logger.info("Wrote evaluation metrics to %s", metrics_output_path)
+                except OSError as exc:
+                    logger.warning(
+                        "Could not write metrics file %s: %s", metrics_output_path, exc
+                    )
 
         # Persist alerts to DB if requested (only anomalous rows)
         if self.persist_to_db:
@@ -446,7 +508,7 @@ if __name__ == "__main__":
         detector.contamination = best_c
 
     # --- Step 2: full analysis + evaluation ---------------------------
-    results = detector.analyze(df, force_train=True)
+    results = detector.analyze(df, force_train=True, metrics_output_path="metrics.json")
 
     anomalies = results[results["is_anomaly"]]
     print(f"\nTotal records      : {len(results):,}")
