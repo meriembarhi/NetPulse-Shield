@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-05-13T20:55:42.575439+00:00",
+  "n_rows": 50000,
+  "n_anomalies_flagged": 2500,
+  "contamination": 0.05,
+  "n_estimators": 100,
+  "model_path": "models/netpulse_model.joblib",
+  "metrics": {
+    "precision": 0.2948,
+    "recall": 0.7613636363636364,
+    "f1": 0.42502883506343714,
+    "roc_auc": 0.972182022467365,
+    "false_positive_rate": 0.035956110295317346,
+    "true_positives": 737,
+    "false_positives": 1763,
+    "false_negatives": 231,
+    "true_negatives": 47269,
+    "confusion_matrix": {
+      "rows": [
+        "actual_normal (0)",
+        "actual_attack (1)"
+      ],
+      "cols": [
+        "pred_normal (0)",
+        "pred_anomaly (1)"
+      ],
+      "counts": [
+        [
+          47269,
+          1763
+        ],
+        [
+          231,
+          737
+        ]
+      ]
+    }
+  }
+}
