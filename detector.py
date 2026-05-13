@@ -6,6 +6,7 @@ import os
 import joblib
 import json
 import logging
+import math
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
@@ -40,6 +41,8 @@ def _json_safe(obj: Any) -> Any:
         return obj.tolist()
     if isinstance(obj, str) or obj is None:
         return obj
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
     if isinstance(obj, (int, float)):
         return obj
     return str(obj)
@@ -387,11 +390,17 @@ class NetworkAnomalyDetector:
         df: pd.DataFrame,
         force_train: bool = False,
         metrics_output_path: Optional[str] = None,
+        compare_lof: bool = False,
     ) -> pd.DataFrame:
         """Analyze dataframe for anomalies with defensive validation and logging.
 
         If ``Label`` is present and ``metrics_output_path`` is set, writes a JSON file
         with evaluation metrics and confusion matrix after scoring.
+
+        If ``compare_lof`` is True and ``Label`` is present, also fits a Local Outlier
+        Factor model on the same scaled matrix ``X`` (same ``contamination`` as the
+        trained Isolation Forest) and attaches results under ``baselines`` in the
+        metrics JSON when a metrics path is set; otherwise the LOF report is only printed.
         """
         if df is None or len(df) == 0:
             raise ValueError("Input dataframe is empty or None. Cannot analyze.")
@@ -437,6 +446,17 @@ class NetworkAnomalyDetector:
 
         if y_true is not None:
             metrics = self.evaluate(X, y_true)
+            baselines_block = None
+            if compare_lof:
+                from baselines import evaluate_lof
+
+                baselines_block = {
+                    "local_outlier_factor": evaluate_lof(
+                        X,
+                        y_true,
+                        contamination=float(self.contamination),
+                    ),
+                }
             if metrics_output_path and metrics:
                 payload = {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -447,6 +467,8 @@ class NetworkAnomalyDetector:
                     "model_path": self.model_path,
                     "metrics": metrics,
                 }
+                if baselines_block is not None:
+                    payload["baselines"] = baselines_block
                 try:
                     _write_metrics_json(metrics_output_path, payload)
                     logger.info("Wrote evaluation metrics to %s", metrics_output_path)
@@ -454,6 +476,11 @@ class NetworkAnomalyDetector:
                     logger.warning(
                         "Could not write metrics file %s: %s", metrics_output_path, exc
                     )
+            elif compare_lof and baselines_block is not None:
+                logger.info(
+                    "compare_lof=True but no metrics_output_path; LOF metrics were "
+                    "printed above and not saved to disk."
+                )
 
         # Persist alerts to DB if requested (only anomalous rows)
         if self.persist_to_db:

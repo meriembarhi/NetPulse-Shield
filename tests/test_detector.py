@@ -82,6 +82,22 @@ def test_analyze_writes_metrics_json_when_labels_present(tmp_path):
     ]
 
 
+def test_analyze_metrics_json_includes_lof_when_compare_lof(tmp_path):
+    df = load_detector_fixture()
+    detector = make_detector(tmp_path)
+    out = tmp_path / "with_lof.json"
+    detector.analyze(
+        df,
+        force_train=True,
+        metrics_output_path=str(out),
+        compare_lof=True,
+    )
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert "baselines" in payload
+    assert "local_outlier_factor" in payload["baselines"]
+    assert payload["baselines"]["local_outlier_factor"]["method"] == "local_outlier_factor"
+
+
 def test_analyze_flags_clear_outlier(tmp_path):
     """Isolation Forest should flag an extreme point among near-duplicate normals."""
     rng = np.random.default_rng(42)

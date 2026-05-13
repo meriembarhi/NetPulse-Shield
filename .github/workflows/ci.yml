@@ -33,7 +33,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest tests/test_detector.py tests/test_solver.py tests/test_pipeline_integration.py -v --tb=short
+          pytest tests/test_detector.py tests/test_solver.py tests/test_pipeline_integration.py tests/test_baselines.py -v --tb=short
 
       - name: Test Summary
         if: always()

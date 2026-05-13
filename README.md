@@ -1,32 +1,57 @@
 # NetPulse-Shield 🛡️
 
-**Système intelligent de détection d’anomalies réseau avec conseils de remédiation**
+**Démo pédagogique : détection d’anomalies sur trafic tabulaire (UNSW-NB15), rapports et intégration SIEM optionnelle — pas un produit SOC commercial.**
 
-NetPulse-Shield analyse le trafic réseau (dataset UNSW-NB15), détecte les anomalies avec **Isolation Forest**, stocke les alertes et fournit des conseils de sécurité via un système **RAG** (par défaut) ou en option avec **Llama 3 via Ollama**.
+NetPulse-Shield enchaîne : données CSV nettoyées → **Isolation Forest** (scikit-learn) → alertes (CSV / SQLite) → conseils textuels (**RAG** hors ligne par défaut, **Ollama** en option) → envoi HTTP vers un SIEM si configuré. Tout est pensé pour **reproduire un petit pipeline** et **mesurer** des métriques quand des labels existent, pas pour remplacer un IDS/NIDS temps réel ni un moteur de détection validé en production sur votre réseau.
 
 ---
 
-## ✨ Fonctionnalités principales
+## Limites et transparence (à lire en premier)
 
-- Détection d’anomalies avec Isolation Forest (modèle persistant + tuning intelligent de contamination)
-- Nettoyage avec un jeu de 12 features domaine-guidées pour une meilleure reproductibilité
-- Stockage des alertes dans **CSV** + **SQLite**
-- Conseils de remédiation via **RAG** (recherche sémantique avec fallback TF-IDF)
-- Intégration SIEM via **Azure Log Analytics / Microsoft Sentinel** ou un webhook générique
-- Mode avancé avec **Ollama / Llama 3** (optionnel)
-- Tableau de bord **Streamlit** interactif
-- Pipeline complet en une seule commande (`pipeline.py`)
+### Ce que ce projet n’est pas
 
-### Rôle des labels (lecture honnête)
+- **Pas un remplacement d’un SOC ou d’un IDS/IPS** : pas d’inspection de paquets en direct, pas de corrélation multi-sources, pas de playbooks d’incident intégrés.
+- **Pas une preuve de sécurité** : des scores élevés sur UNSW-NB15 ne garantissent **rien** sur votre trafic réel (autres protocoles, dérive, attaques absentes du jeu de données).
+- **Pas une certification** : aucun audit externe, aucune garantie de conformité (RGPD, secteur réglementé, etc.).
 
-L’**Isolation Forest** de scikit-learn ne consomme pas la colonne `Label` comme cible supervisée pendant `fit` : l’entraînement reste **non supervisé** sur les seules features numériques.
+### Données et prétraitement
 
-Lorsque **`Label` est présente** dans le CSV, NetPulse-Shield l’utilise pour :
+- Le flux par défaut part d’un **CSV** (souvent issu de `clean_data.py` sur UNSW-NB15). Ce n’est **pas** du streaming.
+- `clean_data.py` ne garde qu’**un sous-ensemble de colonnes** et peut **échantillonner** (jusqu’à 50 000 lignes) : vous n’analysez pas « tout le dataset » brut sauf configuration contraire.
+- Les valeurs manquantes / infinies sont gérées de façon simple (par ex. **imputation par 0** dans le détecteur) : c’est pratique mais **biaisant** ; ce n’est pas une imputation statistique soignée par variable.
+- Les libellés `Label` du jeu public **ne correspondent pas** forcément à ce que votre organisation appellerait « attaque » en production.
 
-1. **Régler `contamination`** — le pipeline (`pipeline.py`) et le script direct `detector.py` effectuent une recherche sur une partie validation (voir `tune_contamination`) afin de rapprocher F1 précision/rappel des attaques connues dans l’échantillon.
-2. **Mesurer la qualité** — après détection, des métriques (précision, rappel, F1, ROC-AUC, FPR) sont calculées pour le rapport de performance.
+### Modèles d’anomalie
 
-Sans **`Label`**, il n’y a pas de vérité terrain : la contamination suit les défauts du détecteur et l’analyse repose surtout sur les **scores d’anomalie** et la reprise humaine (tableau de bord, rapports). Ne présentez pas le système comme de la classification supervisée « classique » : les labels servent ici surtout à **l’étalonnage** et à **l’évaluation** lorsqu’ils sont disponibles.
+- **Isolation Forest** suppose des anomalies « rares » et « faciles à isoler » dans l’espace des features ; ce n’est pas adapté à toutes les menaces ni à toutes les formes de dérive.
+- Avec `python pipeline.py --compare-lof`, un second modèle (**Local Outlier Factor**) est entraîné sur **la même matrice `X` normalisée** et avec la **même `contamination`** que la forêt après réglage : cela sert de **comparaison pédagogique**, pas de vérité absolue. LOF peut fortement varier selon `n_neighbors` et la densité locale.
+- Le réglage de `contamination` sur une **split de validation** quand `Label` est présent aligne le modèle sur **cette partition** ; le modèle final est ré-entraîné sur tout le jeu passé à `analyze`, ce qui peut **légèrement** décaler l’optimum par rapport au sweep.
+
+### Labels, métriques, généralisation
+
+- Les labels ne sont **pas** la cible supervisée de `IsolationForest.fit` ; ils servent à **choisir un hyperparamètre** (`contamination`) et à **calculer** précision, rappel, F1, ROC-AUC, FPR **sur le même fichier** que vous venez de scorer. Ce sont des métriques **in-sample** sur ce batch : elles **surestiment souvent** la performance en généralisation et ne remplacent pas une validation temporelle ou sur site.
+- Sans colonne `Label`, il n’y a pas de vérité terrain : les alertes restent des **candidats** à interpréter.
+
+### Remédiation (RAG / LLM)
+
+- Le RAG **retourne du texte** issu d’une base de connaissances locale (avec repli). Ce n’est **pas** une exécution automatique de commandes sur vos équipements.
+- **Ollama / Llama** peut halluciner ou proposer des actions **inadaptées** à votre contexte. **Vérifiez** toute recommandation avant de l’appliquer ; l’auteur du dépôt et les contributeurs **ne portent pas** la responsabilité d’actions prises sur la base de ces textes.
+
+### SIEM et opérations
+
+- L’envoi vers Azure Log Analytics est **optionnel** ; en cas d’échec réseau ou de mauvaise clé, le pipeline continue mais les événements peuvent être **perdus** si vous ne les journalisez pas ailleurs.
+- Les champs d’alerte (type d’attaque, etc.) déduits de features ou de texte ne sont **pas** une attribution MITRE certifiée.
+
+---
+
+## ✨ Fonctionnalités (aperçu factuel)
+
+- Détection d’anomalies avec **Isolation Forest** (persistance `.joblib`, réglage de `contamination` quand des labels sont disponibles).
+- Option **`--compare-lof`** : baseline **Local Outlier Factor** sur les mêmes features normalisées ; métriques regroupées dans `metrics.json` sous `baselines` lorsque les labels et `--metrics` sont présents.
+- Nettoyage UNSW-NB15 avec **12 features** numériques choisies pour l’exercice (pas une recherche exhaustive de features).
+- Alertes **CSV** + **SQLite** ; tableau de bord **Streamlit** ; rapport texte.
+- Conseils **RAG** (FAISS / repli TF-IDF) ou **Ollama** en option.
+- **Webhook** Azure Data Collector ou endpoint générique.
 
 ---
 
@@ -82,6 +107,8 @@ Prérequis : Ollama installé + modèle llama3 (ou équivalent)
 
 ## 🔐 Intégration SIEM / Azure Sentinel
 
+*(Rappel : lire la section **Limites et transparence** plus haut — l’ingestion SIEM ne transforme pas ce dépôt en produit certifié.)*
+
 NetPulse-Shield peut envoyer les alertes détectées vers un SIEM via HTTP. L'intégration **Azure Log Analytics / Microsoft Sentinel** utilise le **Data Collector API** avec signature SharedKey lorsque `NETPULSE_WORKSPACE_ID` et `NETPULSE_PRIMARY_KEY` sont définis. Un mode webhook générique est aussi disponible pour les tests locaux ou pour d'autres plateformes SIEM.
 
 Cette intégration permet de centraliser les alertes, de les corréler avec d'autres événements de sécurité, de créer des règles d'alerte basées sur les anomalies, et de les exploiter dans un tableau de bord SIEM sans modifier le cœur du pipeline de détection.
@@ -93,7 +120,7 @@ CSV / flux réseau
     ↓
 si colonne Label : réglage de la contamination (validation) — même logique que detector.py
     ↓
-detector.py détecte les anomalies (Isolation Forest)
+detector.py : Isolation Forest (+ option --compare-lof : LOF sur le même X dans metrics.json)
     ↓
 advisor.py génère un conseil de remédiation
     ↓
@@ -254,7 +281,8 @@ Voici une vue d’ensemble claire de l’architecture du projet :
 NetPulse-Shield
 ├── Core Pipeline (Orchestration)
 │   ├── pipeline.py              ← Point d’entrée principal (recommandé)
-│   └── detector.py              ← Cœur de la détection d’anomalies (Isolation Forest)
+│   ├── detector.py              ← Isolation Forest (détection principale)
+│   └── baselines.py             ← Baseline optionnelle (LOF) pour comparaison de métriques
 │
 ├── Remediation Layer
 │   ├── advisor.py               ← Moteur RAG principal (recommandé par défaut)
@@ -358,6 +386,11 @@ streamlit run dashboard.py
 pytest tests/ -q
 ruff check .
 ```
+
+### Métriques exportées (`metrics.json`)
+
+Quand la colonne **`Label`** est présente et que vous n’avez pas désactivé `--metrics`, le pipeline écrit un fichier JSON avec les métriques de l’Isolation Forest et, si **`--compare-lof`**, une section **`baselines.local_outlier_factor`**. Ces chiffres décrivent **ce fichier-là**, pas votre réseau en production.
+
 ### Troubleshooting
 
 - Données manquantes → Exécute `python clean_data.py`

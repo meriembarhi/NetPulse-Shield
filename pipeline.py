@@ -8,11 +8,13 @@ This script orchestrates the complete NetPulse-Shield workflow:
   3. Generate remediation advice for flagged alerts
   4. Produce a comprehensive security report
   5. When labels exist, write evaluation metrics to metrics.json (path configurable with --metrics)
+  6. Optional --compare-lof: second baseline (Local Outlier Factor) on the same scaled features, stored in metrics.json next to Isolation Forest metrics
 
 Usage:
   python pipeline.py                              # Use default data/final_project_data.csv
   python pipeline.py data/my_traffic.csv          # Use custom CSV
   python pipeline.py data/my_traffic.csv --no-persist  # Skip DB persistence
+  python pipeline.py data/my_traffic.csv --compare-lof  # + Local Outlier Factor baseline in metrics.json
 
 Perfect for automation, batch processing, and CI/CD pipelines.
 """
@@ -62,6 +64,7 @@ def run_anomaly_detection(
     df: pd.DataFrame,
     persist_to_db: bool = True,
     metrics_output_path: str | None = "metrics.json",
+    compare_lof: bool = False,
 ) -> pd.DataFrame:
     """Run anomaly detection using Isolation Forest."""
     logger.info("\n" + "="*60)
@@ -95,10 +98,20 @@ def run_anomaly_detection(
                 "skipping metrics.json (no ground truth to evaluate)."
             )
 
+        if compare_lof and "Label" not in df.columns:
+            logger.info("--compare-lof ignored: no 'Label' column for evaluation.")
+
+        if compare_lof and not metrics_output_path:
+            logger.info(
+                "--compare-lof: LOF metrics will be printed only (no metrics file path; "
+                "pass --metrics to persist baselines)."
+            )
+
         results = detector.analyze(
             df,
             force_train=True,
             metrics_output_path=metrics_output_path,
+            compare_lof=compare_lof,
         )
         
         anomalies = results[results['is_anomaly']]
@@ -202,6 +215,7 @@ Examples:
   python pipeline.py                              # Default: data/final_project_data.csv
   python pipeline.py data/my_traffic.csv          # Custom CSV
   python pipeline.py data/my_traffic.csv --no-persist  # Skip DB storage
+  python pipeline.py data/my_traffic.csv --compare-lof  # Add LOF baseline to metrics.json
         """
     )
     parser.add_argument(
@@ -231,12 +245,18 @@ Examples:
         help='Path for evaluation metrics JSON when Label column exists (default: metrics.json). '
         'Use empty string to skip writing metrics.',
     )
+    parser.add_argument(
+        '--compare-lof',
+        action='store_true',
+        help='When Label is present, also fit Local Outlier Factor on the same scaled X and '
+        'store metrics under baselines in the metrics JSON (or print only if metrics disabled).',
+    )
 
     
     args = parser.parse_args()
     
     logger.info("🚀 NetPulse-Shield Pipeline Starting...")
-    logger.info("   Version 2.0 (Professional-Grade)")
+    logger.info("   Version 2.0")
     
     # ===== STEP 1: Load & Validate Data =====
     logger.info("\n" + "="*60)
@@ -251,6 +271,7 @@ Examples:
         df,
         persist_to_db=not args.no_persist,
         metrics_output_path=metrics_path,
+        compare_lof=args.compare_lof,
     )
     
     # ===== STEP 3: Save Alerts =====
@@ -270,6 +291,11 @@ Examples:
     logger.info(f"  • {args.report} — Remediation advice for top 5 anomalies")
     if metrics_path:
         logger.info(f"  • {metrics_path} — Evaluation metrics (when Label column is present)")
+        if args.compare_lof:
+            logger.info(
+                '      └ includes Local Outlier Factor baseline under "baselines" '
+                "(same scaled features, same contamination as Isolation Forest)"
+            )
     logger.info("  • alerts.db — Alert database (if --no-persist not used)")
     logger.info("\nNext steps:")
     logger.info("  • Review alerts in alerts.csv")
