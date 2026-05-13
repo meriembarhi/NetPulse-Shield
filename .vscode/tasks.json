@@ -11,6 +11,18 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "Run NetPulse-Shield dashboard",
+			"type": "shell",
+			"command": "streamlit",
+			"args": [
+				"run",
+				"dashboard.py"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }
