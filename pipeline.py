@@ -37,26 +37,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def validate_csv(csv_path: str) -> pd.DataFrame:
-    """Load and validate CSV file."""
+def load_validated_dataframe(csv_path: str) -> pd.DataFrame:
+    """Load and validate CSV; raises on failure (for dashboards and programmatic callers)."""
     if not os.path.exists(csv_path):
-        logger.error(f"❌ File not found: {csv_path}")
-        sys.exit(1)
-    
+        raise FileNotFoundError(f"File not found: {csv_path}")
+
     try:
         df = pd.read_csv(csv_path)
-        logger.info(f"✅ Loaded {len(df):,} records from {csv_path}")
-        
-        # Check for at least one numeric column
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        if not numeric_cols:
-            logger.error(f"❌ No numeric columns found. Available: {df.columns.tolist()}")
-            sys.exit(1)
-        
-        logger.info(f"   Numeric features: {len(numeric_cols)} ({', '.join(numeric_cols[:5])}{'...' if len(numeric_cols) > 5 else ''})")
-        return df
-    except Exception as e:
-        logger.error(f"❌ Failed to read CSV: {e}")
+    except Exception as exc:
+        raise ValueError(f"Failed to read CSV: {exc}") from exc
+
+    logger.info("✅ Loaded %s records from %s", f"{len(df):,}", csv_path)
+
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    if not numeric_cols:
+        raise ValueError(f"No numeric columns found. Available: {df.columns.tolist()}")
+
+    logger.info(
+        "   Numeric features: %s (%s)",
+        len(numeric_cols),
+        ", ".join(numeric_cols[:5]) + ("..." if len(numeric_cols) > 5 else ""),
+    )
+    return df
+
+
+def validate_csv(csv_path: str) -> pd.DataFrame:
+    """Load and validate CSV file; on error logs and exits (CLI entry point)."""
+    try:
+        return load_validated_dataframe(csv_path)
+    except Exception as exc:
+        logger.error("❌ %s", exc)
         sys.exit(1)
 
 
@@ -65,6 +75,8 @@ def run_anomaly_detection(
     persist_to_db: bool = True,
     metrics_output_path: str | None = "metrics.json",
     compare_lof: bool = False,
+    db_path: str = "sqlite:///alerts.db",
+    force_train: bool = True,
 ) -> pd.DataFrame:
     """Run anomaly detection using Isolation Forest."""
     logger.info("\n" + "="*60)
@@ -75,7 +87,7 @@ def run_anomaly_detection(
         detector = NetworkAnomalyDetector(
             contamination='auto',
             persist_to_db=persist_to_db,
-            db_path="sqlite:///alerts.db"
+            db_path=db_path,
         )
 
         if "Label" in df.columns:
@@ -109,7 +121,7 @@ def run_anomaly_detection(
 
         results = detector.analyze(
             df,
-            force_train=True,
+            force_train=force_train,
             metrics_output_path=metrics_output_path,
             compare_lof=compare_lof,
         )
@@ -120,9 +132,9 @@ def run_anomaly_detection(
         logger.info(f"   Anomalies found: {len(anomalies):,} ({100*len(anomalies)/len(results):.2f}%)")
         
         return results
-    except Exception as e:
-        logger.error(f"❌ Detection failed: {e}")
-        sys.exit(1)
+    except Exception as exc:
+        logger.error("❌ Detection failed: %s", exc)
+        raise RuntimeError(f"Detection failed: {exc}") from exc
 
 
 def save_alerts_csv(results: pd.DataFrame, output_path: str = "alerts.csv") -> None:
@@ -139,17 +151,34 @@ def save_alerts_csv(results: pd.DataFrame, output_path: str = "alerts.csv") -> N
         logger.error(f"⚠️  Failed to save alerts CSV: {e}")
 
 
+def _get_advice_fn(remediation_backend: str):
+    """Return callable(description: str) -> str for the chosen backend."""
+    backend = (remediation_backend or "rag").strip().lower()
+    if backend == "ollama":
+        from remediator import get_remediation_advice as ollama_advice
+
+        return ollama_advice
+    advisor = NetworkSecurityAdvisor(top_k=3)
+    return advisor.get_remediation_advice
+
+
 def generate_remediation_report(
     results: pd.DataFrame,
     output_path: str = "Security_Report.txt",
+    remediation_backend: str = "rag",
 ) -> None:
-    """Generate remediation advice for detected anomalies."""
+    """Generate remediation advice for detected anomalies.
+
+    remediation_backend
+        ``\"rag\"`` (default): ``NetworkSecurityAdvisor``. ``\"ollama\"``: ``remediator.get_remediation_advice``
+        (requires a running Ollama service and the ``llama3`` model).
+    """
     logger.info("\n" + "="*60)
-    logger.info("STEP 2: REMEDIATION ADVICE GENERATION")
+    logger.info("STEP 2: REMEDIATION ADVICE GENERATION (%s)", remediation_backend)
     logger.info("="*60)
     
     try:
-        advisor = NetworkSecurityAdvisor(top_k=3)
+        get_advice = _get_advice_fn(remediation_backend)
         webhook_url = os.getenv("NETPULSE_WEBHOOK_URL")
         workspace_id = os.getenv("NETPULSE_WORKSPACE_ID")
         primary_key = os.getenv("NETPULSE_PRIMARY_KEY")
@@ -175,7 +204,7 @@ def generate_remediation_report(
             description += f"Features: {', '.join(f'{k}={v:.2f}' for k, v in list(features.items())[:3])}"
             
             logger.info(f"\n[Anomaly {idx}/{min(5, len(anomalies))}] Retrieving advice...")
-            advice = advisor.get_remediation_advice(description)
+            advice = get_advice(description)
 
             alert_payload = row.to_dict()
             alert_payload["description"] = description
@@ -205,6 +234,39 @@ def generate_remediation_report(
         logger.error(f"⚠️  Failed to generate report: {e}")
 
 
+def run_pipeline(
+    csv_path: str,
+    *,
+    persist_to_db: bool = True,
+    alerts_csv: str = "alerts.csv",
+    report_path: str = "Security_Report.txt",
+    metrics_path: str | None = "metrics.json",
+    compare_lof: bool = False,
+    remediation_backend: str = "rag",
+    db_path: str = "sqlite:///alerts.db",
+    force_train: bool = True,
+) -> pd.DataFrame:
+    """Run the full NetPulse-Shield pipeline (same steps as ``python pipeline.py``)."""
+    df = load_validated_dataframe(csv_path)
+    metrics = metrics_path.strip() or None if isinstance(metrics_path, str) else metrics_path
+
+    results = run_anomaly_detection(
+        df,
+        persist_to_db=persist_to_db,
+        metrics_output_path=metrics,
+        compare_lof=compare_lof,
+        db_path=db_path,
+        force_train=force_train,
+    )
+    save_alerts_csv(results, alerts_csv)
+    generate_remediation_report(
+        results,
+        report_path,
+        remediation_backend=remediation_backend,
+    )
+    return results
+
+
 def main():
     """Orchestrate the full pipeline."""
     parser = argparse.ArgumentParser(
@@ -216,6 +278,8 @@ Examples:
   python pipeline.py data/my_traffic.csv          # Custom CSV
   python pipeline.py data/my_traffic.csv --no-persist  # Skip DB storage
   python pipeline.py data/my_traffic.csv --compare-lof  # Add LOF baseline to metrics.json
+  python pipeline.py --remediation ollama             # Report via Ollama (llama3)
+  python pipeline.py --use-saved-model               # Score with existing joblib if present
         """
     )
     parser.add_argument(
@@ -251,6 +315,24 @@ Examples:
         help='When Label is present, also fit Local Outlier Factor on the same scaled X and '
         'store metrics under baselines in the metrics JSON (or print only if metrics disabled).',
     )
+    parser.add_argument(
+        '--remediation',
+        choices=['rag', 'ollama'],
+        default='rag',
+        help='Remediation backend for the security report (default: rag). '
+        'ollama requires a running Ollama service and the llama3 model.',
+    )
+    parser.add_argument(
+        '--db',
+        default='sqlite:///alerts.db',
+        dest='db_path',
+        help='SQLAlchemy URL for SQLite alert persistence (default: sqlite:///alerts.db)',
+    )
+    parser.add_argument(
+        '--use-saved-model',
+        action='store_true',
+        help='Score with an existing saved model when available instead of retraining.',
+    )
 
     
     args = parser.parse_args()
@@ -258,30 +340,23 @@ Examples:
     logger.info("🚀 NetPulse-Shield Pipeline Starting...")
     logger.info("   Version 2.0")
     
-    # ===== STEP 1: Load & Validate Data =====
-    logger.info("\n" + "="*60)
-    logger.info("STEP 0: DATA VALIDATION")
-    logger.info("="*60)
-    df = validate_csv(args.csv_path)
-    
     metrics_path = args.metrics.strip() or None
 
-    # ===== STEP 2: Run Anomaly Detection =====
-    results = run_anomaly_detection(
-        df,
-        persist_to_db=not args.no_persist,
-        metrics_output_path=metrics_path,
-        compare_lof=args.compare_lof,
-    )
-    
-    # ===== STEP 3: Save Alerts =====
-    save_alerts_csv(results, args.alerts_csv)
-    
-    # ===== STEP 4: Generate Remediation Report =====
-    generate_remediation_report(
-        results,
-        args.report,
-    )
+    try:
+        run_pipeline(
+            args.csv_path,
+            persist_to_db=not args.no_persist,
+            alerts_csv=args.alerts_csv,
+            report_path=args.report,
+            metrics_path=metrics_path,
+            compare_lof=args.compare_lof,
+            remediation_backend=args.remediation,
+            db_path=args.db_path,
+            force_train=not args.use_saved_model,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        logger.error("❌ %s", exc)
+        sys.exit(1)
     
     logger.info("\n" + "="*60)
     logger.info("✅ PIPELINE COMPLETE")

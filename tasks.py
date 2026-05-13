@@ -1,18 +1,32 @@
 import json
+import os
 
 from db import Alert, AuditLog, get_session
 
-def generate_advice_for_alert(alert_id: int, db_path: str = 'sqlite:///alerts.db'):
+
+def generate_advice_for_alert(
+    alert_id: int,
+    db_path: str = "sqlite:///alerts.db",
+    remediation_backend: str | None = None,
+):
     """Task function to generate advice for a single alert.
 
-    This function is intended to be enqueued with RQ. It is safe to call directly
-    for testing without Redis.
+    remediation_backend
+        ``\"rag\"`` or ``\"ollama\"``. If ``None``, uses ``NETPULSE_REMEDIATION_MODE``
+        (default ``rag``) so RQ workers pick up the env set before ``rq worker``.
     """
+    mode = (remediation_backend or os.getenv("NETPULSE_REMEDIATION_MODE", "rag")).strip().lower()
+
     try:
-        # Import advisor lazily to avoid heavy deps during import-time
-        from advisor import NetworkSecurityAdvisor
+        if mode == "ollama":
+            from remediator import get_remediation_advice as get_advice
+        else:
+            from advisor import NetworkSecurityAdvisor
+
+            _advisor = NetworkSecurityAdvisor()
+            get_advice = _advisor.get_remediation_advice
     except Exception as e:
-        raise RuntimeError(f"Advisor unavailable: {e}")
+        raise RuntimeError(f"Remediation backend unavailable ({mode}): {e}") from e
 
     session = get_session(db_path)
     alert = session.query(Alert).filter(Alert.id == int(alert_id)).one_or_none()
@@ -27,8 +41,7 @@ def generate_advice_for_alert(alert_id: int, db_path: str = 'sqlite:///alerts.db
     except Exception:
         description = f"Anomalous flow - score={alert.anomaly_score}"
 
-    advisor = NetworkSecurityAdvisor()
-    advice = advisor.get_remediation_advice(description)
+    advice = get_advice(description)
 
     alert.advice = advice
 

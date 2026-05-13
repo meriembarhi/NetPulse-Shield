@@ -42,7 +42,12 @@ def get_queue_stats(redis_url: str = 'redis://localhost:6379/0') -> Dict:
         return {'error': str(e)}
 
 
-def bulk_enqueue_advice(alert_ids: List[int], db_path: str, redis_url: str) -> int:
+def bulk_enqueue_advice(
+    alert_ids: List[int],
+    db_path: str,
+    redis_url: str,
+    remediation_backend: str | None = None,
+) -> int:
     """Enqueue multiple alerts for advice generation. Returns count enqueued."""
     try:
         from redis import Redis
@@ -57,7 +62,12 @@ def bulk_enqueue_advice(alert_ids: List[int], db_path: str, redis_url: str) -> i
         for alert_id in alert_ids:
             alert = session.query(Alert).filter(Alert.id == alert_id).one_or_none()
             if alert and not alert.advice:
-                job = q.enqueue('tasks.generate_advice_for_alert', alert_id, db_path)
+                job = q.enqueue(
+                    "tasks.generate_advice_for_alert",
+                    alert_id,
+                    db_path,
+                    remediation_backend,
+                )
                 alert.advice_job_id = job.id
                 alert.advice_status = 'queued'
                 session.add(AuditLog(alert_id=alert_id, action='bulk_enqueue', actor='dashboard'))
