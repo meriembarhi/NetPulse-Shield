@@ -17,6 +17,17 @@ NetPulse-Shield analyse le trafic réseau (dataset UNSW-NB15), détecte les anom
 - Tableau de bord **Streamlit** interactif
 - Pipeline complet en une seule commande (`pipeline.py`)
 
+### Rôle des labels (lecture honnête)
+
+L’**Isolation Forest** de scikit-learn ne consomme pas la colonne `Label` comme cible supervisée pendant `fit` : l’entraînement reste **non supervisé** sur les seules features numériques.
+
+Lorsque **`Label` est présente** dans le CSV, NetPulse-Shield l’utilise pour :
+
+1. **Régler `contamination`** — le pipeline (`pipeline.py`) et le script direct `detector.py` effectuent une recherche sur une partie validation (voir `tune_contamination`) afin de rapprocher F1 précision/rappel des attaques connues dans l’échantillon.
+2. **Mesurer la qualité** — après détection, des métriques (précision, rappel, F1, ROC-AUC, FPR) sont calculées pour le rapport de performance.
+
+Sans **`Label`**, il n’y a pas de vérité terrain : la contamination suit les défauts du détecteur et l’analyse repose surtout sur les **scores d’anomalie** et la reprise humaine (tableau de bord, rapports). Ne présentez pas le système comme de la classification supervisée « classique » : les labels servent ici surtout à **l’étalonnage** et à **l’évaluation** lorsqu’ils sont disponibles.
+
 ---
 
 ## 🚀 Démarrage rapide
@@ -80,7 +91,9 @@ Cette intégration permet de centraliser les alertes, de les corréler avec d'au
 ```text
 CSV / flux réseau
     ↓
-detector.py détecte les anomalies
+si colonne Label : réglage de la contamination (validation) — même logique que detector.py
+    ↓
+detector.py détecte les anomalies (Isolation Forest)
     ↓
 advisor.py génère un conseil de remédiation
     ↓

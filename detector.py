@@ -416,6 +416,7 @@ class NetworkAnomalyDetector:
 
 if __name__ == "__main__":
     print("NetPulse-Shield — Network Anomaly Detector")
+    print("(Pour le flux complet : remédiation, rapport, SIEM → python pipeline.py)")
     print("=" * 50)
 
     data_path = os.path.join("data", "final_project_data.csv")

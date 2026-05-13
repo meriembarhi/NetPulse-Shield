@@ -4,7 +4,7 @@ pipeline.py - End-to-End Network Anomaly Detection & Remediation Pipeline
 
 This script orchestrates the complete NetPulse-Shield workflow:
   1. Load network traffic data from CSV
-  2. Detect anomalies using Isolation Forest
+  2. Detect anomalies using Isolation Forest (tunes contamination on a validation split when a Label column exists — same behavior as running detector.py directly)
   3. Generate remediation advice for flagged alerts
   4. Produce a comprehensive security report
 
@@ -69,6 +69,21 @@ def run_anomaly_detection(df: pd.DataFrame, persist_to_db: bool = True) -> pd.Da
             persist_to_db=persist_to_db,
             db_path="sqlite:///alerts.db"
         )
+
+        if "Label" in df.columns:
+            logger.info(
+                "Found column 'Label' — tuning contamination on a stratified "
+                "validation split (aligned with detector.py __main__)."
+            )
+            best_c = detector.tune_contamination(df, label_column="Label")
+            detector.contamination = best_c
+            logger.info("Using tuned contamination: %.4f", best_c)
+        else:
+            logger.info(
+                "No 'Label' column — skipping contamination sweep; train() will "
+                "use default auto contamination when labels are absent."
+            )
+
         results = detector.analyze(df, force_train=True)
         
         anomalies = results[results['is_anomaly']]
