@@ -4,6 +4,7 @@ This module mirrors the advisor contract:
 get_remediation_advice(anomaly_description: str) -> str
 """
 
+import os
 import sys
 
 import ollama
@@ -23,7 +24,8 @@ def check_ollama_status() -> bool:
 
 def get_remediation_advice(anomaly_description: str) -> str:
     """Return structured remediation advice for an anomaly description."""
-    print("🧠 Analyzing anomaly data with Llama 3...")
+    model_name = os.getenv("NETPULSE_OLLAMA_MODEL", "phi3:mini")
+    print(f"🧠 Analyzing anomaly data with {model_name}...")
 
     prompt = f"""
     You are a Senior Network Security Expert.
@@ -42,12 +44,12 @@ def get_remediation_advice(anomaly_description: str) -> str:
 
     try:
         response = ollama.chat(
-            model="llama3",
+            model=model_name,
             messages=[{"role": "user", "content": prompt}],
         )
         return response["message"]["content"]
     except Exception as e:
-        return f"❌ Failed to get advice from Llama 3: {str(e)}"
+        return f"❌ Failed to get advice from {model_name}: {str(e)}"
 
 
 def get_security_advice(anomaly_data: str) -> str:

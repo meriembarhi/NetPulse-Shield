@@ -101,7 +101,7 @@ Avantages : Rapide, fiable, entièrement hors ligne, peu de ressources
 Fichiers : remediator.py, auto_remediator.py
 Fonctionnement : Envoie les anomalies à Llama 3 pour générer des rapports structurés (type d’attaque, niveau de risque, commandes Cisco, etc.)
 Avantages : Conseils très détaillés et naturels
-Prérequis : Ollama installé + modèle llama3 (ou équivalent)
+Prérequis : Ollama installé + modèle Ollama (par défaut : `NETPULSE_OLLAMA_MODEL=phi3:mini`, configurable dans le dashboard)
 
 ---
 

@@ -145,8 +145,17 @@ remediation_backend = st.sidebar.selectbox(
     "Remediation backend (`--remediation`)",
     options=["rag", "ollama"],
     index=0,
-    help="RAG: local advisor. Ollama: requires `ollama serve` and `llama3`.",
+    help=(
+        "RAG: local advisor. Ollama: requires `ollama serve` and an Ollama model "
+        "(default NETPULSE_OLLAMA_MODEL=phi3:mini)."
+    ),
     key="np_remediation",
+)
+ollama_model = st.sidebar.text_input(
+    "Ollama model (small recommended)",
+    value=os.getenv("NETPULSE_OLLAMA_MODEL", "phi3:mini"),
+    help="Used when remediation backend is ollama. Example: llama3:8b or phi3:mini.",
+    key="np_ollama_model",
 )
 force_retrain = st.sidebar.checkbox(
     "Force retrain Isolation Forest",
@@ -161,6 +170,9 @@ redis_url = st.sidebar.text_input(
 )
 
 create_db(db_path)
+
+# Make the model available to the Ollama backend for this process.
+os.environ["NETPULSE_OLLAMA_MODEL"] = (ollama_model or "phi3:mini").strip()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Actions")

@@ -320,7 +320,8 @@ Examples:
         choices=['rag', 'ollama'],
         default='rag',
         help='Remediation backend for the security report (default: rag). '
-        'ollama requires a running Ollama service and the llama3 model.',
+        'ollama requires a running Ollama service and an Ollama model '
+        '(default NETPULSE_OLLAMA_MODEL=llama3:8b).',
     )
     parser.add_argument(
         '--db',
