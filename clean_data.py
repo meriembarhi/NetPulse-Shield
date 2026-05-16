@@ -12,7 +12,7 @@ Description: Prepares the dataset for Isolation Forest and downstream remediatio
 def prepare_final_dataset():
     # 1. Load the column-name dictionary
     try:
-        features_df = pd.read_csv('data/NUSW-NB15_features.csv', encoding='cp1252')
+        features_df = pd.read_csv('data/raw/NUSW-NB15_features.csv', encoding='cp1252')
         column_names = features_df['Name'].str.strip().tolist()
     except FileNotFoundError:
         print("❌ Error: 'NUSW-NB15_features.csv' was not found in /data.")
@@ -23,7 +23,7 @@ def prepare_final_dataset():
 
     # 2. Load raw data
     # low_memory=False helps with mixed data types in the original dataset
-    input_file = 'data/UNSW-NB15_1.csv'
+    input_file = 'data/raw/UNSW-NB15_1.csv'
     if not os.path.exists(input_file):
         print(f"❌ Error: {input_file} was not found.")
         return

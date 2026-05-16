@@ -218,13 +218,14 @@ __marimo__/
 .streamlit/secrets.toml
 # NetPulse-Shield Artifacts
 alerts.csv
-# Ignore only the large CSV files inside data
-data/*.csv
-alerts.csv
 
-# Do NOT ignore the data README (if you want them to see it)
+# Ignore large raw data CSVs
+data/raw/*.csv
+
+# Do NOT ignore processed data, README, or sample
 !data/README.md
-!data/final_project_data.csv
+!data/processed/final_project_data.csv
+!data/raw/sample_traffic.csv
 models/*.joblib
 __pycache__/
 *.pyc
